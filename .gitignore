@@ -16,3 +16,7 @@ Thumbs.db
 
 # temp screenshots
 _shot.png
+
+# Go CLI build artifacts
+cli/scanline.exe
+cli/scanline

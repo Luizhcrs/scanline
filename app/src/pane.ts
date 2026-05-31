@@ -44,7 +44,9 @@ export class Pane implements PaneLike {
    */
   keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
-  constructor() {
+  /** @param command optional command line to run in this pane (instead of a
+   *  plain interactive shell) — used for agent panes spawned via the CLI/shim. */
+  constructor(private readonly command?: string) {
     this.el = document.createElement("div");
     this.el.className = "pane";
     this.el.tabIndex = -1;
@@ -105,6 +107,7 @@ export class Pane implements PaneLike {
       rows: this.term.rows,
       cols: this.term.cols,
       shell: shell ?? null,
+      command: this.command ?? null,
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;

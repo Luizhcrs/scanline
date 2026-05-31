@@ -9,6 +9,7 @@ interface ControlCommand {
   dir?: "row" | "col" | "left" | "right" | "up" | "down";
   text?: string;
   url?: string;
+  command?: string;
 }
 
 function main() {
@@ -74,13 +75,15 @@ function main() {
     const cmd = e.payload;
     if (!cmd || typeof cmd.method !== "string") return;
     switch (cmd.method) {
-      case "pane.split":
-        layout.splitWithNew(
-          cmd.dir === "col" || cmd.dir === "row" ? cmd.dir : undefined,
-        );
+      case "pane.split": {
+        const dir = cmd.dir === "col" || cmd.dir === "row" ? cmd.dir : undefined;
+        if (cmd.command) layout.splitFocused(new Pane(cmd.command), dir);
+        else layout.splitWithNew(dir);
         break;
+      }
       case "pane.new":
-        layout.splitWithNew();
+        if (cmd.command) layout.splitFocused(new Pane(cmd.command));
+        else layout.splitWithNew();
         break;
       case "pane.close":
         layout.closeFocused();

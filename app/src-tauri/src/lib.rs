@@ -41,6 +41,7 @@ fn pty_spawn(
     rows: u16,
     cols: u16,
     shell: Option<String>,
+    command: Option<String>,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -53,7 +54,15 @@ fn pty_spawn(
         .map_err(|e| e.to_string())?;
 
     let program = shell.unwrap_or_else(|| "powershell.exe".to_string());
-    let mut cmd = CommandBuilder::new(program);
+    let mut cmd = CommandBuilder::new(&program);
+    // If a command line was given (e.g. an agent pane from `scanline run` or a
+    // tmux split-window with a command), run it via the shell. Otherwise the
+    // pane is a plain interactive shell.
+    if let Some(line) = command {
+        cmd.arg("-NoLogo");
+        cmd.arg("-Command");
+        cmd.arg(line);
+    }
     if let Ok(home) = std::env::var("USERPROFILE") {
         cmd.cwd(home);
     }
