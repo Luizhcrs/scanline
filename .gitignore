@@ -13,3 +13,6 @@ cli/*.exe
 .DS_Store
 *.log
 Thumbs.db
+
+# temp screenshots
+_shot.png
