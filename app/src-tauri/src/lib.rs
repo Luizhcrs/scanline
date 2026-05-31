@@ -147,10 +147,17 @@ struct BrowserManager {
 }
 
 /// Create a child webview on the main window at the given logical bounds.
+///
+/// ASYNC on purpose: creating a child webview (wry/WebView2) must run on the
+/// main/event-loop thread, but doing it synchronously *inside* a command that
+/// is itself dispatched from the event loop deadlocks (reentrant webview
+/// creation). An async command runs OFF the main thread, so we can dispatch the
+/// creation back to a free main loop via run_on_main_thread and await the
+/// result through a channel.
 #[tauri::command]
-fn browser_open(
+async fn browser_open(
     app: AppHandle,
-    browsers: State<BrowserManager>,
+    browsers: State<'_, BrowserManager>,
     id: u32,
     url: String,
     x: f64,
@@ -158,28 +165,45 @@ fn browser_open(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("main window not found")?;
-    let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
-    // Reopening the same id must not leak the previous webview.
-    if let Some(old) = browsers.views.lock().unwrap().remove(&id) {
-        let _ = old.close();
-    }
-    let label = format!("browser-{id}");
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(parsed));
-    let webview = window
-        .add_child(
-            builder,
-            LogicalPosition::new(x, y),
-            LogicalSize::new(w.max(1.0), h.max(1.0)),
-        )
-        .map_err(|e| e.to_string())?;
+    let old = browsers.views.lock().unwrap().remove(&id);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(old) = old {
+            let _ = old.close();
+        }
+        let result = (|| {
+            let window = app2.get_window("main").ok_or("main window not found")?;
+            let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+            let builder =
+                WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed));
+            window
+                .add_child(
+                    builder,
+                    LogicalPosition::new(x, y),
+                    LogicalSize::new(w.max(1.0), h.max(1.0)),
+                )
+                .map_err(|e| e.to_string())
+        })();
+        let _ = tx.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+
+    let webview = rx
+        .await
+        .map_err(|_| "browser_open: main-thread closure dropped".to_string())??;
     browsers.views.lock().unwrap().insert(id, webview);
     Ok(())
 }
 
+// All native webview manipulation below is dispatched to the main/event-loop
+// thread via run_on_main_thread. Like add_child, these wry operations are not
+// safe to call from Tauri's command worker thread.
+
 /// Reposition/resize a browser pane's webview to match its DOM rectangle.
 #[tauri::command]
 fn browser_bounds(
+    app: AppHandle,
     browsers: State<BrowserManager>,
     id: u32,
     x: f64,
@@ -187,57 +211,83 @@ fn browser_bounds(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
-        v.set_position(LogicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
-        v.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)))
-            .map_err(|e| e.to_string())?;
+    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = v.set_position(LogicalPosition::new(x, y));
+            let _ = v.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)));
+        });
     }
     Ok(())
 }
 
 /// Navigate a browser pane to a new URL.
 #[tauri::command]
-fn browser_navigate(browsers: State<BrowserManager>, id: u32, url: String) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
-        let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
-        v.navigate(parsed).map_err(|e| e.to_string())?;
+fn browser_navigate(
+    app: AppHandle,
+    browsers: State<BrowserManager>,
+    id: u32,
+    url: String,
+) -> Result<(), String> {
+    let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = v.navigate(parsed);
+        });
     }
     Ok(())
 }
 
-/// Hide/show a browser pane's webview (used when it scrolls offscreen).
+/// Hide/show a browser pane's webview.
 #[tauri::command]
-fn browser_visible(browsers: State<BrowserManager>, id: u32, visible: bool) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
-        let _ = if visible { v.show() } else { v.hide() };
+fn browser_visible(
+    app: AppHandle,
+    browsers: State<BrowserManager>,
+    id: u32,
+    visible: bool,
+) -> Result<(), String> {
+    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = if visible { v.show() } else { v.hide() };
+        });
     }
     Ok(())
 }
 
 /// Navigate back in a browser pane's history.
 #[tauri::command]
-fn browser_back(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
-        let _ = v.eval("history.back()");
+fn browser_back(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = v.eval("history.back()");
+        });
     }
     Ok(())
 }
 
 /// Navigate forward in a browser pane's history.
 #[tauri::command]
-fn browser_forward(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
-        let _ = v.eval("history.forward()");
+fn browser_forward(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = v.eval("history.forward()");
+        });
     }
     Ok(())
 }
 
 /// Close and drop a browser pane's webview.
 #[tauri::command]
-fn browser_close(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    if let Some(v) = browsers.views.lock().unwrap().remove(&id) {
-        let _ = v.close();
+fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    let v = browsers.views.lock().unwrap().remove(&id);
+    if let Some(v) = v {
+        let _ = app.run_on_main_thread(move || {
+            let _ = v.close();
+        });
     }
     Ok(())
 }
@@ -401,12 +451,141 @@ async fn cdp_selftest(app: AppHandle) -> Result<String, String> {
     Ok(report)
 }
 
+// ---- Control server (named pipe) ----
+//
+// External processes (the agent tmux-shim, a CLI, scripts) drive the running
+// grid by writing JSON lines to \\.\pipe\scanline. Each line is forwarded to
+// the frontend as a `control://command` event, which the Shell dispatches to
+// the layout (split / new / close / focus pane, notify). This is the mechanism
+// that lets an agent's `tmux split-window` spawn a real pane in the window.
+
+#[cfg(windows)]
+const CONTROL_PIPE: &str = r"\\.\pipe\scanline";
+
+#[cfg(windows)]
+async fn handle_control_client(
+    server: tokio::net::windows::named_pipe::NamedPipeServer,
+    app: AppHandle,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let mut reader = BufReader::new(server);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break, // client disconnected
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                // Only forward well-formed JSON commands; ack the result.
+                let ack = match serde_json::from_str::<serde_json::Value>(trimmed) {
+                    Ok(v) => {
+                        // debug.cdp is handled here (not forwarded): run a CDP eval
+                        // on a browser pane and return the result, for diagnostics.
+                        if v.get("method").and_then(|m| m.as_str()) == Some("debug.cdp") {
+                            let id = v.get("id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                            let expr = v
+                                .get("expr")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("1")
+                                .to_string();
+                            let wv = app
+                                .state::<BrowserManager>()
+                                .views
+                                .lock()
+                                .unwrap()
+                                .get(&id)
+                                .cloned();
+                            let res = match wv {
+                                Some(w) => {
+                                    cdp_call(
+                                        w,
+                                        "Runtime.evaluate".into(),
+                                        Some(
+                                            serde_json::json!({"expression": expr, "returnByValue": true})
+                                                .to_string(),
+                                        ),
+                                    )
+                                    .await
+                                }
+                                None => Err(format!("no browser pane {id}")),
+                            };
+                            eprintln!("debug.cdp id={id} => {res:?}");
+                            format!("{}\n", serde_json::json!({ "debug": format!("{res:?}") }))
+                        } else {
+                            let _ = app.emit("control://command", v);
+                            "{\"ok\":true}\n".to_string()
+                        }
+                    }
+                    Err(e) => format!("{{\"ok\":false,\"error\":{}}}\n", serde_json::json!(e.to_string())),
+                };
+                let _ = reader.get_mut().write_all(ack.as_bytes()).await;
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+/// Spawn the named-pipe control server on Tauri's async runtime. Uses the
+/// classic accept loop: create the next pipe instance before handing the
+/// connected one to a task, so concurrent clients never get refused.
+/// `first_pipe_instance(true)` also enforces single-instance ownership of the
+/// pipe name.
+#[cfg(windows)]
+fn start_control_server(app: AppHandle) {
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    tauri::async_runtime::spawn(async move {
+        let mut server = match ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(CONTROL_PIPE)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("control: cannot create {CONTROL_PIPE}: {e}");
+                return;
+            }
+        };
+        loop {
+            if server.connect().await.is_err() {
+                match ServerOptions::new().create(CONTROL_PIPE) {
+                    Ok(s) => server = s,
+                    Err(e) => {
+                        eprintln!("control: recreate failed: {e}");
+                        return;
+                    }
+                }
+                continue;
+            }
+            let connected = server;
+            server = match ServerOptions::new().create(CONTROL_PIPE) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("control: recreate failed: {e}");
+                    return;
+                }
+            };
+            tauri::async_runtime::spawn(handle_control_client(connected, app.clone()));
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn start_control_server(_app: AppHandle) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
         .manage(BrowserManager::default())
+        .setup(|app| {
+            start_control_server(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pty_spawn,
             pty_write,

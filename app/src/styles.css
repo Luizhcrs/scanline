@@ -13,87 +13,7 @@
 
 html,
 body,
-#app {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: var(--bg);
-}
-
-#app {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Tab strip: terminal tab + one tab per browser. Always above the content,
-   so its chips stay clickable even when a native webview covers the content. */
-#tabbar {
-  flex: 0 0 34px;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 4px 4px 0;
-  background: #0a0d13;
-  border-bottom: 1px solid #1c2230;
-}
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 200px;
-  padding: 0 6px 0 12px;
-  background: #11151f;
-  border: 1px solid #1c2230;
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  color: #8a8f99;
-  font: 12px/1 Consolas, monospace;
-  cursor: pointer;
-  user-select: none;
-}
-.tab.active {
-  background: var(--bg);
-  color: #c5c8c6;
-  border-color: rgba(95, 249, 103, 0.35);
-}
-.tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tab-close {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
-}
-.tab-close:hover {
-  background: #c0392b;
-  color: #fff;
-}
-.tab-add {
-  background: none;
-  border: none;
-  color: #8a8f99;
-  font-size: 18px;
-  width: 28px;
-  cursor: pointer;
-}
-.tab-add:hover {
-  color: #c5c8c6;
-}
-
-/* Content area: holds the terminal grid and any browser overlays. */
-#content {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--bg);
-}
+#app,
 #workspace {
   width: 100%;
   height: 100%;
@@ -158,14 +78,12 @@ body,
   height: 100% !important;
 }
 
-/* Browser tab: a full-area overlay (URL bar + native webview region) that fills
-   the content area when its tab is active, and is display:none otherwise. */
-.browser-view {
-  position: absolute;
-  inset: 0;
+/* Browser pane: URL bar + native webview region filling the rest. Lives in the
+   grid like a terminal pane (no display:none toggling — that wedges WebView2). */
+.pane.browser {
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  padding: 0;
 }
 .browser-bar {
   display: flex;
