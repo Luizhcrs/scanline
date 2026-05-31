@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { type PaneLike, nextPaneId } from "./types";
 
 interface PtyData {
   id: number;
@@ -15,14 +16,12 @@ const THEME = {
   cursor: "#5ff967",
 };
 
-let paneCounter = 0;
-
 /**
  * A single terminal pane: an xterm.js terminal bound to a backend ConPTY.
  * Owns its DOM element (`.pane`), the terminal, and the pty lifecycle.
  */
-export class Pane {
-  readonly paneId = ++paneCounter;
+export class Pane implements PaneLike {
+  readonly paneId = nextPaneId();
   readonly el: HTMLElement;
   private term: Terminal;
   private fit: FitAddon;
@@ -31,9 +30,9 @@ export class Pane {
   private resizeObserver?: ResizeObserver;
 
   /** Called when the underlying process exits. */
-  onExit?: (pane: Pane) => void;
+  onExit?: (pane: PaneLike) => void;
   /** Called when this pane is clicked/focused. */
-  onFocusRequest?: (pane: Pane) => void;
+  onFocusRequest?: (pane: PaneLike) => void;
   /**
    * App-level shortcut handler. Return true if the key was consumed as a
    * Scanline shortcut (then it is NOT forwarded to the shell). xterm.js owns

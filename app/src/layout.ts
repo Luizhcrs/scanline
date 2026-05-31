@@ -1,10 +1,10 @@
-import { Pane } from "./pane";
+import type { PaneLike } from "./types";
 
 type Dir = "row" | "col";
 
 interface LeafNode {
   kind: "leaf";
-  pane: Pane;
+  pane: PaneLike;
 }
 interface SplitNode {
   kind: "split";
@@ -19,16 +19,16 @@ const MIN_RATIO = 0.1;
 const MAX_RATIO = 0.9;
 
 /**
- * Tiling layout: a binary tree of splits whose leaves are terminal panes.
- * Rendering reuses each Pane's DOM element, so terminals survive re-renders
- * (split / close / resize) without losing state.
+ * Tiling layout: a binary tree of splits whose leaves are panes (terminal or
+ * browser). Rendering reuses each pane's DOM element, so content survives
+ * re-renders (split / close / resize) without losing state.
  */
 export class Layout {
   private root: Node;
-  private focused: Pane;
+  private focused: PaneLike;
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
-  constructor(private container: HTMLElement, first: Pane) {
+  constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
     this.focused = first;
     this.adopt(first);
@@ -42,12 +42,12 @@ export class Layout {
     for (const p of this.collectPanes(this.root)) p.keyHandler = fn;
   }
 
-  get focusedPane(): Pane {
+  get focusedPane(): PaneLike {
     return this.focused;
   }
 
   /** Wire a freshly created pane into the layout's callbacks. */
-  private adopt(pane: Pane): void {
+  private adopt(pane: PaneLike): void {
     pane.onFocusRequest = (p) => this.setFocus(p);
     pane.onExit = (p) => this.closePane(p);
     pane.keyHandler = this.keyHandler;
@@ -57,7 +57,7 @@ export class Layout {
    * Split the focused pane, placing `newPane` beside it. Direction defaults to
    * the longer edge of the focused pane (keeps the grid balanced).
    */
-  splitFocused(newPane: Pane, dir?: Dir): void {
+  splitFocused(newPane: PaneLike, dir?: Dir): void {
     this.adopt(newPane);
     const chosen = dir ?? this.autoDir(this.focused);
     const leaf = this.findLeaf(this.root, this.focused);
@@ -75,16 +75,12 @@ export class Layout {
   }
 
   /** Close a pane, collapse its parent split (sibling takes the space). */
-  async closePane(pane: Pane): Promise<void> {
+  async closePane(pane: PaneLike): Promise<void> {
     const sibling = this.siblingOf(this.root, pane);
-    if (sibling === undefined) {
-      // Last pane — closing it isn't allowed (keep at least one).
-      return;
-    }
+    if (sibling === undefined) return; // last pane — keep at least one
     this.root = this.removeLeaf(this.root, pane)!;
     await pane.dispose();
     this.render();
-    // Focus the first leaf of the surviving sibling subtree.
     const next = this.firstLeaf(sibling);
     if (next) this.setFocus(next);
   }
@@ -93,7 +89,7 @@ export class Layout {
     void this.closePane(this.focused);
   }
 
-  setFocus(pane: Pane): void {
+  setFocus(pane: PaneLike): void {
     if (this.focused && this.focused !== pane) this.focused.blur();
     this.focused = pane;
     pane.focus();
@@ -106,7 +102,7 @@ export class Layout {
     const cx = cur.left + cur.width / 2;
     const cy = cur.top + cur.height / 2;
 
-    let best: Pane | null = null;
+    let best: PaneLike | null = null;
     let bestScore = Infinity;
     for (const p of panes) {
       if (p === this.focused) continue;
@@ -121,7 +117,6 @@ export class Layout {
         (direction === "up" && dy < -1) ||
         (direction === "down" && dy > 1);
       if (!ok) continue;
-      // Distance weighted to favor the intended axis.
       const score =
         direction === "left" || direction === "right"
           ? Math.abs(dx) + Math.abs(dy) * 2
@@ -142,7 +137,6 @@ export class Layout {
 
   private renderNode(node: Node): HTMLElement {
     if (node.kind === "leaf") {
-      // Reuse the pane element (preserves the terminal).
       node.pane.el.style.flex = "1 1 auto";
       return node.pane.el;
     }
@@ -201,17 +195,17 @@ export class Layout {
 
   // ---- tree helpers ----
 
-  private autoDir(pane: Pane): Dir {
+  private autoDir(pane: PaneLike): Dir {
     const r = pane.el.getBoundingClientRect();
     return r.width >= r.height ? "row" : "col";
   }
 
-  private findLeaf(node: Node, pane: Pane): LeafNode | null {
+  private findLeaf(node: Node, pane: PaneLike): LeafNode | null {
     if (node.kind === "leaf") return node.pane === pane ? node : null;
     return this.findLeaf(node.a, pane) ?? this.findLeaf(node.b, pane);
   }
 
-  private replace(node: Node, target: Pane, replacement: Node): Node {
+  private replace(node: Node, target: PaneLike, replacement: Node): Node {
     if (node.kind === "leaf") return node.pane === target ? replacement : node;
     return {
       ...node,
@@ -220,8 +214,7 @@ export class Layout {
     };
   }
 
-  /** Remove a leaf; the split collapses to its sibling. Returns new tree or null. */
-  private removeLeaf(node: Node, pane: Pane): Node | null {
+  private removeLeaf(node: Node, pane: PaneLike): Node | null {
     if (node.kind === "leaf") return node.pane === pane ? null : node;
     const a = this.removeLeaf(node.a, pane);
     const b = this.removeLeaf(node.b, pane);
@@ -230,19 +223,19 @@ export class Layout {
     return { ...node, a, b };
   }
 
-  private siblingOf(node: Node, pane: Pane): Node | undefined {
+  private siblingOf(node: Node, pane: PaneLike): Node | undefined {
     if (node.kind === "leaf") return undefined;
     if (node.a.kind === "leaf" && node.a.pane === pane) return node.b;
     if (node.b.kind === "leaf" && node.b.pane === pane) return node.a;
     return this.siblingOf(node.a, pane) ?? this.siblingOf(node.b, pane);
   }
 
-  private firstLeaf(node: Node): Pane | null {
+  private firstLeaf(node: Node): PaneLike | null {
     if (node.kind === "leaf") return node.pane;
     return this.firstLeaf(node.a) ?? this.firstLeaf(node.b);
   }
 
-  private collectPanes(node: Node, out: Pane[] = []): Pane[] {
+  private collectPanes(node: Node, out: PaneLike[] = []): PaneLike[] {
     if (node.kind === "leaf") out.push(node.pane);
     else {
       this.collectPanes(node.a, out);

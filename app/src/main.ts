@@ -1,4 +1,5 @@
 import { Pane } from "./pane";
+import { BrowserPane } from "./browser";
 import { Layout } from "./layout";
 
 async function newPane(): Promise<Pane> {
@@ -31,6 +32,11 @@ async function main() {
     }
     if (e.altKey && e.shiftKey && e.key === "ArrowDown") {
       void (async () => layout.splitFocused(await newPane(), "col"))();
+      return true;
+    }
+    // Open a browser pane in a split: Alt+Shift+B
+    if (e.altKey && e.shiftKey && key === "b") {
+      layout.splitFocused(new BrowserPane());
       return true;
     }
     // Close focused: Ctrl+Shift+W
