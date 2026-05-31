@@ -93,6 +93,11 @@ fn pty_spawn(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
+    // Reusing an id would orphan the old shell + its reader thread (both emit to
+    // the same pty://{id} channel). Kill any existing pty on this id first.
+    if let Some(mut old) = state.ptys.lock().unwrap().remove(&id) {
+        let _ = old.child.kill();
+    }
     state.ptys.lock().unwrap().insert(
         id,
         Pty {
@@ -218,8 +223,9 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
     tauri::async_runtime::spawn_blocking(move || {
         let pids = descendant_pids(root);
         let mut ports: Vec<u16> = Vec::new();
-        // netstat -ano: "  TCP  0.0.0.0:PORT  ...  LISTENING  PID"
-        if let Some(out) = run_capture("netstat", &["-ano", "-p", "TCP"], None) {
+        // netstat -ano lists TCP + TCPv6; we filter on the LISTENING column so
+        // IPv6 listeners ([::]:PORT, common for dev servers) are included too.
+        if let Some(out) = run_capture("netstat", &["-ano"], None) {
             for line in out.lines() {
                 if !line.contains("LISTENING") {
                     continue;
@@ -253,12 +259,15 @@ async fn grep_dir(cwd: String, query: String) -> Result<Vec<serde_json::Value>, 
         return Ok(vec![]);
     }
     tauri::async_runtime::spawn_blocking(move || {
+        // findstr's /C: requires the search string appended to the flag in the
+        // SAME token (/c:<string>), not as a separate argument.
+        let findstr_pat = format!("/c:{query}");
         let raw = run_capture(
             "rg",
             &["--line-number", "--no-heading", "--color", "never", "-S", "-m", "5", &query, "."],
             Some(&cwd),
         )
-        .or_else(|| run_capture("findstr", &["/s", "/n", "/i", "/c:", &query, "*"], Some(&cwd)))
+        .or_else(|| run_capture("findstr", &["/s", "/n", "/i", &findstr_pat, "*"], Some(&cwd)))
         .unwrap_or_default();
 
         let mut out = Vec::new();

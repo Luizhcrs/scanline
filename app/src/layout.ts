@@ -33,6 +33,8 @@ export class Layout {
   private notifyHandler: ((pane: PaneLike, title: string, body: string) => void) | null = null;
   /** Called whenever focus moves to a pane (used to clear its notification ring). */
   onFocusChange: ((pane: PaneLike) => void) | null = null;
+  /** Called when a leaf is closed (used to prune its notifications). */
+  onPaneClosed: ((paneId: number) => void) | null = null;
 
   constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
@@ -220,6 +222,7 @@ export class Layout {
     if (sibling === undefined) return; // last pane — keep at least one
     if (this.zoomed === pane) this.zoomed = null;
     this.root = this.removeLeaf(this.root, pane)!;
+    this.onPaneClosed?.(pane.paneId);
     await pane.dispose();
     this.render();
     const next = this.firstLeaf(sibling);
@@ -304,9 +307,10 @@ export class Layout {
     for (const p of this.collectPanes(this.root)) p.setVisible?.(visible);
   }
 
-  /** Dispose every pane (used when a workspace is closed). */
+  /** Dispose every pane (used when a workspace is closed). allSettled so one
+   *  failing dispose doesn't leak the remaining panes' webviews. */
   async disposeAll(): Promise<void> {
-    for (const p of this.collectPanes(this.root)) await p.dispose();
+    await Promise.allSettled(this.collectPanes(this.root).map((p) => p.dispose()));
   }
 
   private renderNode(node: Node): HTMLElement {

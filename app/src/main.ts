@@ -147,6 +147,7 @@ class App {
     };
     layout.setNotifyHandler((pane, t, b) => this.notifs.add(pane.paneId, t, b, ws.id));
     layout.onFocusChange = (pane) => this.notifs.clearForPane(pane.paneId);
+    layout.onPaneClosed = (paneId) => this.notifs.removePane(paneId);
 
     this.workspaces.push(ws);
     this.selectWorkspace(this.workspaces.length - 1);
@@ -166,13 +167,17 @@ class App {
     this.activeWs.layout.refitAll();
     this.activeWs.layout.focusedPane.focus();
     this.renderSidebar();
+    void this.refreshMeta();
   }
 
-  closeWorkspace(id: number): void {
+  async closeWorkspace(id: number): Promise<void> {
     const i = this.workspaces.findIndex((w) => w.id === id);
     if (i < 0 || this.workspaces.length === 1) return; // keep at least one
     const ws = this.workspaces[i];
-    void ws.layout.disposeAll();
+    // Prune this workspace's notifications, then await full teardown (webviews)
+    // before detaching the grid so nothing leaks.
+    for (const s of ws.layout.serialize()) this.notifs.removePane(s.pane);
+    await ws.layout.disposeAll();
     ws.grid.remove();
     this.workspaces.splice(i, 1);
     if (this.active >= this.workspaces.length) this.active = this.workspaces.length - 1;
@@ -264,32 +269,30 @@ class App {
     this.sidebar.replaceChildren(...rows, add);
   }
 
-  /** Poll each workspace's focused-surface cwd -> git branch/dirty/PR + ports. */
+  /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
+   *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private async refreshMeta(): Promise<void> {
-    let changed = false;
-    for (const w of this.workspaces) {
-      const fs = w.layout.focusedSurface;
-      const cwd = fs.cwd ?? "";
-      if (!cwd) continue;
-      try {
-        const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
-          "repo_info",
-          { cwd },
-        );
-        const ports =
-          fs.kind === "terminal"
-            ? await invoke<number[]>("pane_ports", { id: (fs as Pane).getPtyId() })
-            : [];
-        const next = { cwd, branch: info.branch, dirty: info.dirty, pr: info.pr, ports };
-        if (JSON.stringify(next) !== JSON.stringify(this.meta.get(w.id))) {
-          this.meta.set(w.id, next);
-          changed = true;
-        }
-      } catch {
-        /* git/gh not available or no repo */
+    const w = this.activeWs;
+    const fs = w.layout.focusedSurface;
+    const cwd = fs.cwd ?? "";
+    if (!cwd) return;
+    try {
+      const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
+        "repo_info",
+        { cwd },
+      );
+      const ports =
+        fs.kind === "terminal"
+          ? await invoke<number[]>("pane_ports", { id: (fs as Pane).getPtyId() })
+          : [];
+      const next = { cwd, branch: info.branch, dirty: info.dirty, pr: info.pr, ports };
+      if (JSON.stringify(next) !== JSON.stringify(this.meta.get(w.id))) {
+        this.meta.set(w.id, next);
+        this.renderSidebar();
       }
+    } catch {
+      /* git/gh not available or no repo */
     }
-    if (changed) this.renderSidebar();
   }
 
   /** Draggable divider to resize the sidebar; width persisted in localStorage. */

@@ -37,9 +37,14 @@ export class CommandPalette {
   private restore: HTMLElement | null = null;
   private provider: ((q: string) => Promise<PaletteItem[]>) | null = null;
   private debounce?: ReturnType<typeof setTimeout>;
-  private usage: Record<string, number> = JSON.parse(
-    localStorage.getItem("scanline.cmdUsage") || "{}",
-  );
+  private gen = 0; // guards against stale async provider results
+  private usage: Record<string, number> = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("scanline.cmdUsage") || "{}");
+    } catch {
+      return {};
+    }
+  })();
 
   constructor() {
     this.overlay = document.createElement("div");
@@ -96,7 +101,10 @@ export class CommandPalette {
       clearTimeout(this.debounce);
       const q = this.input.value.trim();
       this.debounce = setTimeout(async () => {
-        this.filtered = await this.provider!(q);
+        const myGen = ++this.gen;
+        const items = await this.provider!(q);
+        if (myGen !== this.gen) return; // a newer query superseded this one
+        this.filtered = items;
         this.renderRows();
       }, 180);
     } else {

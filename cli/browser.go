@@ -69,23 +69,27 @@ func runBrowser(args []string) {
 			fmt.Fprintf(os.Stderr, "scanline: %v\n", resp["error"])
 			os.Exit(1)
 		}
+		data := ""
 		if r, ok := resp["result"].(map[string]any); ok {
-			if data, ok := r["data"].(string); ok && data != "" {
-				b, derr := base64.StdEncoding.DecodeString(data)
-				if derr != nil {
-					fmt.Fprintln(os.Stderr, "scanline: bad screenshot data:", derr)
-					os.Exit(1)
-				}
-				if out == "" {
-					out = "scanline-screenshot.png"
-				}
-				if werr := os.WriteFile(out, b, 0o644); werr != nil {
-					fmt.Fprintln(os.Stderr, "scanline:", werr)
-					os.Exit(1)
-				}
-				fmt.Printf("saved %s (%d bytes)\n", out, len(b))
-			}
+			data, _ = r["data"].(string)
 		}
+		if data == "" {
+			fmt.Fprintln(os.Stderr, "scanline: screenshot returned no data")
+			os.Exit(1)
+		}
+		b, derr := base64.StdEncoding.DecodeString(data)
+		if derr != nil {
+			fmt.Fprintln(os.Stderr, "scanline: bad screenshot data:", derr)
+			os.Exit(1)
+		}
+		if out == "" {
+			out = "scanline-screenshot.png"
+		}
+		if werr := os.WriteFile(out, b, 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "scanline:", werr)
+			os.Exit(1)
+		}
+		fmt.Printf("saved %s (%d bytes)\n", out, len(b))
 		return
 	}
 

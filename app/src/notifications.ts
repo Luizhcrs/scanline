@@ -99,6 +99,17 @@ export class NotificationStore {
     }
   }
 
+  /** Drop all notifications for a pane that was closed (prevents stuck badges
+   *  and unbounded growth). */
+  removePane(leafId: number): void {
+    const before = this.items.length;
+    this.items = this.items.filter((n) => n.leafId !== leafId);
+    if (this.items.length !== before) {
+      this.render();
+      this.onChange?.();
+    }
+  }
+
   clearAll(): void {
     for (const n of this.items) this.getPaneEl(n.leafId)?.classList.remove("notif-ring");
     this.items = [];

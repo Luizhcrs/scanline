@@ -82,10 +82,12 @@ func callerSurface(args []string) (surface any, rest []string) {
 	rest = []string{}
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--surface" && i+1 < len(args) {
+			// Only consume the value if it parses; a bad value is left as a
+			// positional rather than silently swallowing the next real arg.
 			if n, err := strconv.Atoi(args[i+1]); err == nil {
 				surface = n
+				i++
 			}
-			i++
 			continue
 		}
 		rest = append(rest, args[i])
@@ -250,8 +252,9 @@ func main() {
 		}
 		m := map[string]any{}
 		if sub == "select" && len(args) >= 3 {
+			// 1-based for the user (matches Ctrl+1..8); protocol delta is 0-based.
 			if n, err := strconv.Atoi(args[2]); err == nil {
-				m["delta"] = n
+				m["delta"] = n - 1
 			}
 		}
 		send("surface."+sub, m)

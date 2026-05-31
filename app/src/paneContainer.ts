@@ -179,6 +179,9 @@ export class PaneContainer implements PaneLike {
     this.mounted.delete(s);
     this.flagged.delete(s);
     this.surfaces.splice(i, 1);
+    // Keep the same active surface focused: closing a tab before it shifts its
+    // index down by one; closing the active tab keeps the index (next surface).
+    if (i < this.active) this.active--;
     if (this.active >= this.surfaces.length) this.active = this.surfaces.length - 1;
     this.showActive();
     this.renderStrip();

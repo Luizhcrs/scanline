@@ -132,7 +132,14 @@ export class Pane implements PaneLike {
     // OSC 7 reports the working directory (file://host/path) — sidebar metadata.
     this.term.parser.registerOscHandler(7, (d) => {
       const m = d.match(/^file:\/\/[^/]*(\/.*)$/);
-      if (m) this._cwd = decodeURIComponent(m[1]).replace(/^\/([A-Za-z]:)/, "$1");
+      if (m) {
+        try {
+          this._cwd = decodeURIComponent(m[1]).replace(/^\/([A-Za-z]:)/, "$1");
+        } catch {
+          // raw '%' in the path makes decodeURIComponent throw — keep it literal.
+          this._cwd = m[1].replace(/^\/([A-Za-z]:)/, "$1");
+        }
+      }
       return true;
     });
 

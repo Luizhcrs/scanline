@@ -124,12 +124,26 @@ func runTmuxCompat(args []string) {
 	default:
 		// new-window, capture-pane, display-message, set-option, … — no-op.
 	}
+	if rpcFailed {
+		os.Exit(1)
+	}
 	os.Exit(0)
 }
 
+// set when an RPC fails so runTmuxCompat can exit non-zero (so an agent's tmux
+// call doesn't see success when nothing actually happened).
+var rpcFailed bool
+
 func sendQuiet(method string, fields map[string]any) {
-	if _, err := rpc(method, fields); err != nil {
+	resp, err := rpc(method, fields)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "scanline tmux-compat:", err)
+		rpcFailed = true
+		return
+	}
+	if ok, _ := resp["ok"].(bool); !ok {
+		fmt.Fprintf(os.Stderr, "scanline tmux-compat: %v\n", resp["error"])
+		rpcFailed = true
 	}
 }
 
@@ -149,8 +163,9 @@ func isKeyName(k string) bool {
 		"up", "down", "left", "right", "home", "end", "pageup", "pagedown", "delete":
 		return true
 	}
-	// C-x / M-x chords
-	return len(k) >= 3 && (k[1] == '-') && (k[0] == 'C' || k[0] == 'M' || k[0] == 'c' || k[0] == 'm')
+	// C-x / M-x / S-x chords: modifier, dash, single char (exactly 3 chars), so
+	// literal text like "c-section" isn't misread as a key.
+	return len(k) == 3 && k[1] == '-' && strings.ContainsRune("CMScms", rune(k[0]))
 }
 
 // launchAgent runs an agent (claude, codex, …) with a fake-tmux environment so
