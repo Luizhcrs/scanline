@@ -1,0 +1,15 @@
+# Node
+node_modules/
+app/dist/
+
+# Rust / Tauri
+app/src-tauri/target/
+app/src-tauri/gen/schemas/
+
+# Go (cli, added later)
+cli/*.exe
+
+# OS / editor
+.DS_Store
+*.log
+Thumbs.db
