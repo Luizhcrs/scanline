@@ -26,14 +26,20 @@ const MAX_RATIO = 0.9;
 export class Layout {
   private root: Node;
   private focused: Pane;
+  private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
   constructor(private container: HTMLElement, first: Pane) {
     this.root = { kind: "leaf", pane: first };
     this.focused = first;
-    first.onFocusRequest = (p) => this.setFocus(p);
-    first.onExit = (p) => this.closePane(p);
+    this.adopt(first);
     this.render();
     this.setFocus(first);
+  }
+
+  /** Install the app shortcut handler on all panes (current and future). */
+  setKeyHandler(fn: (e: KeyboardEvent) => boolean): void {
+    this.keyHandler = fn;
+    for (const p of this.collectPanes(this.root)) p.keyHandler = fn;
   }
 
   get focusedPane(): Pane {
@@ -44,6 +50,7 @@ export class Layout {
   private adopt(pane: Pane): void {
     pane.onFocusRequest = (p) => this.setFocus(p);
     pane.onExit = (p) => this.closePane(p);
+    pane.keyHandler = this.keyHandler;
   }
 
   /**

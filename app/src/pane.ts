@@ -34,6 +34,13 @@ export class Pane {
   onExit?: (pane: Pane) => void;
   /** Called when this pane is clicked/focused. */
   onFocusRequest?: (pane: Pane) => void;
+  /**
+   * App-level shortcut handler. Return true if the key was consumed as a
+   * Scanline shortcut (then it is NOT forwarded to the shell). xterm.js owns
+   * keyboard focus, so global window listeners don't see these — this hook
+   * runs inside xterm's own key path via attachCustomKeyEventHandler.
+   */
+  keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
   constructor() {
     this.el = document.createElement("div");
@@ -50,6 +57,15 @@ export class Pane {
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
     this.term.loadAddon(new WebLinksAddon());
+
+    // Intercept Scanline shortcuts before xterm forwards keys to the pty.
+    // Returning false tells xterm to ignore the event.
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && this.keyHandler && this.keyHandler(e)) {
+        return false;
+      }
+      return true;
+    });
 
     this.el.addEventListener("mousedown", () => this.onFocusRequest?.(this));
   }

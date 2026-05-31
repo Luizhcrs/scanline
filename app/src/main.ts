@@ -14,38 +14,31 @@ async function main() {
   const first = await newPane();
   const layout = new Layout(workspace, first);
 
-  // Open Claude in the focused pane (just types the command for now; the
-  // scanline CLI integration lands in phase 3).
-  async function splitWith(): Promise<void> {
-    const p = await newPane();
-    layout.splitFocused(p);
-  }
+  // Shortcut handler. Runs inside xterm's key path (see Pane.attachCustomKeyEventHandler).
+  // Return true to consume the key (not forwarded to the shell).
+  layout.setKeyHandler((e: KeyboardEvent): boolean => {
+    const key = e.key.toLowerCase();
 
-  window.addEventListener("keydown", (e) => {
-    // Split: Alt+Shift+D (auto direction)
-    if (e.altKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
-      e.preventDefault();
-      void splitWith();
-      return;
+    // Split focused pane, auto direction: Alt+Shift+D
+    if (e.altKey && e.shiftKey && key === "d") {
+      void (async () => layout.splitFocused(await newPane()))();
+      return true;
     }
-    // Split explicit: Alt+Shift+ArrowRight/Down
+    // Explicit splits: Alt+Shift+Right (side), Alt+Shift+Down (stacked)
     if (e.altKey && e.shiftKey && e.key === "ArrowRight") {
-      e.preventDefault();
       void (async () => layout.splitFocused(await newPane(), "row"))();
-      return;
+      return true;
     }
     if (e.altKey && e.shiftKey && e.key === "ArrowDown") {
-      e.preventDefault();
       void (async () => layout.splitFocused(await newPane(), "col"))();
-      return;
+      return true;
     }
     // Close focused: Ctrl+Shift+W
-    if (e.ctrlKey && e.shiftKey && (e.key === "W" || e.key === "w")) {
-      e.preventDefault();
+    if (e.ctrlKey && e.shiftKey && key === "w") {
       layout.closeFocused();
-      return;
+      return true;
     }
-    // Focus navigation: Alt+Arrow
+    // Focus navigation: Alt+Arrow (no shift)
     if (e.altKey && !e.shiftKey) {
       const map: Record<string, "left" | "right" | "up" | "down"> = {
         ArrowLeft: "left",
@@ -55,10 +48,11 @@ async function main() {
       };
       const dir = map[e.key];
       if (dir) {
-        e.preventDefault();
         layout.focusDir(dir);
+        return true;
       }
     }
+    return false;
   });
 }
 
