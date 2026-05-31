@@ -134,6 +134,20 @@ body,
   color: #8a8f99;
 }
 
+/* Flash the focused pane (Ctrl+Shift+H) to locate it. */
+@keyframes pane-flash {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--focus), 0 0 14px rgba(95, 249, 103, 0.65);
+  }
+}
+.pane.flash {
+  animation: pane-flash 0.4s ease-in-out 2;
+}
+
 .xterm,
 .xterm-viewport,
 .xterm-screen {

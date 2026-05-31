@@ -109,6 +109,14 @@ export class BrowserPane implements PaneLike {
     requestAnimationFrame(() => this.refit());
   }
 
+  get title(): string {
+    try {
+      return new URL(this.pendingUrl).hostname.replace(/^www\./, "") || "browser";
+    } catch {
+      return "browser";
+    }
+  }
+
   navigate(input: string): void {
     const url = toUrl(input);
     this.urlInput.value = url;

@@ -29,6 +29,7 @@ export class Layout {
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   private paneFactory: (() => PaneLike) | null = null;
   private mounted = new WeakSet<PaneLike>();
+  private zoomed: PaneLike | null = null;
   private notifyHandler: ((pane: PaneLike, title: string, body: string) => void) | null = null;
   /** Called whenever focus moves to a pane (used to clear its notification ring). */
   onFocusChange: ((pane: PaneLike) => void) | null = null;
@@ -74,6 +75,7 @@ export class Layout {
   serialize(): Array<{
     id: number;
     kind: string;
+    title: string;
     focused: boolean;
     rect: { x: number; y: number; w: number; h: number };
   }> {
@@ -82,6 +84,7 @@ export class Layout {
       return {
         id: p.paneId,
         kind: p.kind,
+        title: p.title ?? "",
         focused: p === this.focused,
         rect: { x: r.left, y: r.top, w: r.width, h: r.height },
       };
@@ -91,6 +94,51 @@ export class Layout {
   /** Find a pane by its stable id. */
   paneById(id: number): PaneLike | null {
     return this.collectPanes(this.root).find((p) => p.paneId === id) ?? null;
+  }
+
+  /** Reset every split to 50/50. */
+  equalize(): void {
+    const walk = (n: Node): void => {
+      if (n.kind === "split") {
+        n.ratio = 0.5;
+        walk(n.a);
+        walk(n.b);
+      }
+    };
+    walk(this.root);
+    this.render();
+  }
+
+  /** Grow (+) or shrink (-) the focused pane within its parent split. */
+  resizeFocused(delta: number): void {
+    const clamp = (r: number) => Math.max(MIN_RATIO, Math.min(MAX_RATIO, r));
+    const adjust = (n: Node): boolean => {
+      if (n.kind !== "split") return false;
+      if (n.a.kind === "leaf" && n.a.pane === this.focused) {
+        n.ratio = clamp(n.ratio + delta);
+        return true;
+      }
+      if (n.b.kind === "leaf" && n.b.pane === this.focused) {
+        n.ratio = clamp(n.ratio - delta);
+        return true;
+      }
+      return adjust(n.a) || adjust(n.b);
+    };
+    if (adjust(this.root)) this.render();
+  }
+
+  /** Toggle zooming the focused pane to fill the workspace. */
+  toggleZoom(): void {
+    this.zoomed = this.zoomed ? null : this.focused;
+    this.render();
+  }
+
+  /** Briefly flash the focused pane (locate it visually). */
+  flashFocused(): void {
+    const el = this.focused.el;
+    el.classList.remove("flash");
+    void el.offsetWidth; // restart the animation
+    el.classList.add("flash");
   }
 
   /** Wire a freshly created pane into the layout's callbacks. */
@@ -131,6 +179,7 @@ export class Layout {
   async closePane(pane: PaneLike): Promise<void> {
     const sibling = this.siblingOf(this.root, pane);
     if (sibling === undefined) return; // last pane — keep at least one
+    if (this.zoomed === pane) this.zoomed = null;
     this.root = this.removeLeaf(this.root, pane)!;
     await pane.dispose();
     this.render();
@@ -186,7 +235,12 @@ export class Layout {
   // ---- rendering ----
 
   private render(): void {
-    this.container.replaceChildren(this.renderNode(this.root));
+    if (this.zoomed) {
+      this.zoomed.el.style.flex = "1 1 auto";
+      this.container.replaceChildren(this.zoomed.el);
+    } else {
+      this.container.replaceChildren(this.renderNode(this.root));
+    }
     // Elements are now in the DOM and measurable: mount any pane that hasn't
     // been mounted yet (opens xterm, spawns its pty). Must run before the
     // caller's setFocus, which focuses the terminal.

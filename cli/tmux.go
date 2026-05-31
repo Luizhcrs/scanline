@@ -65,6 +65,8 @@ func runTmuxCompat(args []string) {
 		}
 	case "kill-pane", "killp":
 		sendQuiet("pane.close", nil)
+	case "resize-pane", "resizep":
+		sendQuiet("pane.resize", map[string]any{"delta": 0.05})
 	case "send-keys", "send":
 		// Each non-flag arg is a key: a key-name (Enter, C-c, Up, …) -> send_key,
 		// anything else -> literal send_text. Target the caller's pane (env).

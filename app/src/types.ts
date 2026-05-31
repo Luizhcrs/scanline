@@ -13,6 +13,8 @@ export interface PaneLike {
   readonly paneId: number;
   /** Discriminator for serialization / targeting (pane.list, send_text). */
   readonly kind: "terminal" | "browser";
+  /** Display label (terminal title from OSC 0/2, or browser host). */
+  readonly title?: string;
   /** Root DOM element (class "pane"). */
   readonly el: HTMLElement;
   /** App shortcut handler; return true to consume the key. */

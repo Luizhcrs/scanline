@@ -1,7 +1,14 @@
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+
 /**
  * Notification store: the "an agent needs you" signal. A notification rings its
  * pane (blue ring) and lands in a panel. Rings clear when the pane is focused.
  * Producers: OSC 9 / OSC 777 / bell (from terminal panes) and the `notify` CLI.
+ * When the window is not focused, also raises a native OS toast.
  */
 export interface Notif {
   id: number;
@@ -54,6 +61,20 @@ export class NotificationStore {
     });
     this.getPaneEl(leafId)?.classList.add("notif-ring");
     this.render();
+    // Native toast only when the window isn't focused (don't nag the active user).
+    if (!document.hasFocus()) {
+      void this.toast(title || `pane ${leafId}`, body);
+    }
+  }
+
+  private async toast(title: string, body: string): Promise<void> {
+    try {
+      let granted = await isPermissionGranted();
+      if (!granted) granted = (await requestPermission()) === "granted";
+      if (granted) sendNotification({ title, body });
+    } catch (e) {
+      console.warn("toast:", e);
+    }
   }
 
   /** Pane focused → clear its ring and mark its notifications read. */
@@ -73,6 +94,11 @@ export class NotificationStore {
     for (const n of this.items) this.getPaneEl(n.leafId)?.classList.remove("notif-ring");
     this.items = [];
     this.render();
+  }
+
+  /** Snapshot for the notif.list CLI. */
+  list(): Notif[] {
+    return this.items.map((n) => ({ ...n }));
   }
 
   togglePanel(): void {

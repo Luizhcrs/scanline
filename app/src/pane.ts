@@ -41,6 +41,12 @@ export class Pane implements PaneLike {
    *  the notification store. */
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
 
+  private _title = "";
+  /** Terminal title from OSC 0/2, else the command, else "terminal". */
+  get title(): string {
+    return this._title || (this.command ? this.command.split(/\s+/)[0] : "terminal");
+  }
+
   /** Called when the underlying process exits. */
   onExit?: (pane: PaneLike) => void;
   /** Called when this pane is clicked/focused. */
@@ -62,10 +68,11 @@ export class Pane implements PaneLike {
 
     this.term = new Terminal({
       fontFamily: "Cascadia Code, Consolas, monospace",
-      fontSize: 14,
+      fontSize: DEFAULT_FONT_SIZE,
       cursorBlink: true,
       theme: THEME,
       allowProposedApi: true,
+      scrollback: 100000,
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
@@ -105,6 +112,10 @@ export class Pane implements PaneLike {
     } catch (e) {
       console.warn("serialize addon unavailable:", e);
     }
+
+    // OSC 0/2 set the window/icon title (used for tab/sidebar labels later).
+    this.term.parser.registerOscHandler(0, (d) => ((this._title = d), true));
+    this.term.parser.registerOscHandler(2, (d) => ((this._title = d), true));
 
     // OSC 9 ; <message>  (ConEmu/Windows-Terminal growl-style notify). Numeric
     // first field (9;4;… progress) is not a notification — skip those.
@@ -209,6 +220,29 @@ export class Pane implements PaneLike {
     if (this.ptyId < 0) return;
     const bytes = Array.from(text, (c) => c.charCodeAt(0) & 0xff);
     invoke("pty_write", { id: this.ptyId, data: bytes });
+  }
+
+  async copySelection(): Promise<void> {
+    const sel = this.term.getSelection();
+    if (!sel) return;
+    try {
+      await navigator.clipboard.writeText(sel);
+    } catch (e) {
+      console.warn("copy:", e);
+    }
+  }
+
+  async paste(): Promise<void> {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) this.term.paste(t);
+    } catch (e) {
+      console.warn("paste:", e);
+    }
+  }
+
+  selectAll(): void {
+    this.term.selectAll();
   }
 
   focus(): void {

@@ -113,6 +113,8 @@ func usage() {
   scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
   scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
+  scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
+  scanline notif [clear]                             list (or clear) notifications
   scanline ping                                      health check
   scanline <agent> [args...]                         launch an agent (fake-tmux)`)
 }
@@ -211,6 +213,24 @@ func main() {
 		send("notify", m)
 	case "close":
 		send("pane.close", nil)
+	case "equalize":
+		send("pane.equalize", nil)
+	case "zoom":
+		send("pane.zoom", nil)
+	case "resize":
+		delta := 0.05
+		if len(args) >= 2 {
+			if d, err := strconv.ParseFloat(args[1], 64); err == nil {
+				delta = d
+			}
+		}
+		send("pane.resize", map[string]any{"delta": delta})
+	case "notif":
+		if len(args) >= 2 && args[1] == "clear" {
+			send("notif.clear", nil)
+		} else {
+			send("notif.list", nil)
+		}
 	case "ping":
 		send("system.ping", nil)
 	case "__tmux-compat":

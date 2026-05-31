@@ -18,6 +18,7 @@ interface ControlCommand {
   command?: string;
   surface?: number;
   key?: string;
+  delta?: number;
 }
 
 interface ControlResult {
@@ -134,6 +135,32 @@ function main() {
       focusedTerminal()?.adjustFontSize(0);
       return true;
     }
+    // Copy / paste / select-all: Ctrl+Shift+C / V / A
+    if (e.ctrlKey && e.shiftKey && key === "c") {
+      void focusedTerminal()?.copySelection();
+      return true;
+    }
+    if (e.ctrlKey && e.shiftKey && key === "v") {
+      void focusedTerminal()?.paste();
+      return true;
+    }
+    if (e.ctrlKey && e.shiftKey && key === "a") {
+      focusedTerminal()?.selectAll();
+      return true;
+    }
+    // Zoom focused pane: Alt+Shift+Z ; equalize: Alt+Shift+E ; flash: Ctrl+Shift+H
+    if (e.altKey && e.shiftKey && key === "z") {
+      layout.toggleZoom();
+      return true;
+    }
+    if (e.altKey && e.shiftKey && key === "e") {
+      layout.equalize();
+      return true;
+    }
+    if (e.ctrlKey && e.shiftKey && key === "h") {
+      layout.flashFocused();
+      return true;
+    }
     // Focus navigation: Alt+Arrow (no shift)
     if (e.altKey && !e.shiftKey) {
       const map: Record<string, "left" | "right" | "up" | "down"> = {
@@ -213,6 +240,20 @@ function main() {
         if (p && p.kind === "terminal") (p as Pane).clear();
         return { ok: true };
       }
+      case "pane.equalize":
+        layout.equalize();
+        return { ok: true };
+      case "pane.zoom":
+        layout.toggleZoom();
+        return { ok: true };
+      case "pane.resize":
+        layout.resizeFocused(typeof cmd.delta === "number" ? cmd.delta : 0.05);
+        return { ok: true };
+      case "notif.list":
+        return { ok: true, result: notifs.list() };
+      case "notif.clear":
+        notifs.clearAll();
+        return { ok: true };
       case "system.ping":
         return { ok: true, result: { pong: true } };
       case "system.identify":
@@ -232,6 +273,11 @@ function main() {
               "surface.send_key",
               "surface.read_text",
               "pane.clear",
+              "pane.equalize",
+              "pane.zoom",
+              "pane.resize",
+              "notif.list",
+              "notif.clear",
               "browser.open",
               "notify",
               "system.ping",
