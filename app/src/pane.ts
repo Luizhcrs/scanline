@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { type PaneLike, nextPaneId } from "./types";
 
 /** Frontend-allocated pty ids. Allocated before spawn so per-pty event
@@ -81,8 +82,22 @@ export class Pane implements PaneLike {
     if (this.mounted) return;
     this.mounted = true;
     this.term.open(this.el);
+    this.enableWebgl();
     this.safeFit();
     void this.spawn(shell);
+  }
+
+  /** Switch xterm to the GPU (WebGL) renderer. Must run after term.open (it
+   *  needs the canvas). Falls back to the default DOM renderer if the GPU
+   *  context is unavailable or lost. */
+  private enableWebgl(): void {
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => addon.dispose());
+      this.term.loadAddon(addon);
+    } catch (e) {
+      console.warn("WebGL terminal renderer unavailable, using DOM:", e);
+    }
   }
 
   private async spawn(shell?: string): Promise<void> {
