@@ -118,6 +118,7 @@ func usage() {
   scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
   scanline surface [new|next|prev|close|select <n>]  per-pane terminal tabs
+  scanline ws [list|new|select <id>|close <id>|rename <id> <name>|current]  workspaces
   scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
   scanline notif [clear]                             list (or clear) notifications
   scanline ping                                      health check
@@ -220,6 +221,28 @@ func main() {
 		send("notify", m)
 	case "close":
 		send("pane.close", nil)
+	case "workspace", "ws":
+		sub := "list"
+		if len(args) >= 2 {
+			sub = args[1]
+		}
+		m := map[string]any{}
+		switch sub {
+		case "select", "close":
+			if len(args) >= 3 {
+				if n, err := strconv.Atoi(args[2]); err == nil {
+					m["workspace"] = n
+				}
+			}
+		case "rename":
+			if len(args) >= 3 {
+				if n, err := strconv.Atoi(args[2]); err == nil {
+					m["workspace"] = n
+				}
+				m["name"] = strings.Join(args[3:], " ")
+			}
+		}
+		send("workspace."+sub, m)
 	case "surface":
 		sub := "new"
 		if len(args) >= 2 {

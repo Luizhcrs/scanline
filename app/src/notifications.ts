@@ -13,6 +13,7 @@ import {
 export interface Notif {
   id: number;
   leafId: number;
+  wsId: number;
   title: string;
   body: string;
   read: boolean;
@@ -49,16 +50,21 @@ export class NotificationStore {
     document.body.appendChild(this.panel);
   }
 
+  /** Called by the app to refresh the sidebar when notifications change. */
+  onChange?: () => void;
+
   /** Record a notification and ring its pane. */
-  add(leafId: number, title: string, body: string): void {
+  add(leafId: number, title: string, body: string, wsId = 0): void {
     this.items.unshift({
       id: this.nextId++,
       leafId,
+      wsId,
       title,
       body,
       read: false,
       ts: Date.now(),
     });
+    this.onChange?.();
     this.getPaneEl(leafId)?.classList.add("notif-ring");
     this.render();
     // Native toast only when the window isn't focused (don't nag the active user).
@@ -87,18 +93,27 @@ export class NotificationStore {
         changed = true;
       }
     }
-    if (changed) this.render();
+    if (changed) {
+      this.render();
+      this.onChange?.();
+    }
   }
 
   clearAll(): void {
     for (const n of this.items) this.getPaneEl(n.leafId)?.classList.remove("notif-ring");
     this.items = [];
     this.render();
+    this.onChange?.();
   }
 
   /** Snapshot for the notif.list CLI. */
   list(): Notif[] {
     return this.items.map((n) => ({ ...n }));
+  }
+
+  /** Unread notifications for a given workspace (sidebar badge). */
+  unreadForWs(wsId: number): number {
+    return this.items.filter((n) => n.wsId === wsId && !n.read).length;
   }
 
   togglePanel(): void {

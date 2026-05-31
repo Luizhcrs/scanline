@@ -15,7 +15,13 @@ const newCommandLeaf = (command: string) =>
 const newBrowserLeaf = (url?: string) =>
   new PaneContainer(new BrowserPane(url), () => new Pane());
 
-/** A command from the named-pipe control server (agent shim / CLI / scripts). */
+interface Workspace {
+  id: number;
+  title: string;
+  grid: HTMLElement;
+  layout: Layout;
+}
+
 interface ControlCommand {
   id?: string;
   method: string;
@@ -26,21 +32,21 @@ interface ControlCommand {
   url?: string;
   command?: string;
   surface?: number;
+  workspace?: number;
+  name?: string;
   key?: string;
   delta?: number;
   verb?: string;
   ref?: string;
   args?: string[];
 }
-
 interface ControlResult {
   ok: boolean;
   result?: unknown;
   error?: string;
 }
 
-/** Map a named key / ctrl-chord (enter, tab, c-c, up, …) to the bytes a pty
- *  expects; falls back to the literal string. */
+/** Map a named key / ctrl-chord (enter, tab, c-c, up, …) to pty bytes. */
 function keyToBytes(key: string): string {
   const k = key.toLowerCase();
   const named: Record<string, string> = {
@@ -66,44 +72,183 @@ function keyToBytes(key: string): string {
   return key;
 }
 
-function main() {
-  const workspace = document.getElementById("workspace");
-  if (!workspace) return;
+/**
+ * App shell: a vertical-tabs sidebar of workspaces over a content area. Each
+ * workspace owns its own tiling Layout (grid); only the active workspace's grid
+ * is shown (inactive ones hide their grid + native browser webviews). The
+ * control protocol and shortcuts operate on the active workspace's layout.
+ */
+class App {
+  private workspaces: Workspace[] = [];
+  private active = 0;
+  private nextWsId = 1;
+  private sidebarVisible = true;
+  private notifs: NotificationStore;
 
-  const first = newTerminalLeaf();
-  const layout = new Layout(workspace, first);
-  layout.setPaneFactory(newTerminalLeaf);
+  constructor(
+    private sidebar: HTMLElement,
+    private content: HTMLElement,
+  ) {
+    this.notifs = new NotificationStore(
+      (leafId) => this.paneElAcrossWs(leafId),
+      (leafId) => this.focusPaneAcrossWs(leafId),
+    );
+    this.notifs.onChange = () => this.renderSidebar();
 
-  // Notifications: ring a pane on OSC 9/777/bell or the notify verb; clear on focus.
-  const notifs = new NotificationStore(
-    (id) => layout.paneById(id)?.el ?? null,
-    (id) => {
-      const p = layout.paneById(id);
-      if (p) layout.setFocus(p);
-    },
-  );
-  layout.setNotifyHandler((pane, title, body) => notifs.add(pane.paneId, title, body));
-  layout.onFocusChange = (pane) => notifs.clearForPane(pane.paneId);
+    this.newWorkspace();
 
-  const focusedTerminal = (): Pane | null => {
-    const s = layout.focusedSurface;
-    return s.kind === "terminal" ? (s as Pane) : null;
-  };
+    window.addEventListener("resize", () => this.activeLayout.refitAll());
 
-  // Keep native browser webviews aligned when the window resizes.
-  window.addEventListener("resize", () => layout.refitAll());
+    void listen<ControlCommand>("control://request", (e) => {
+      const cmd = e.payload;
+      this.dispatch(cmd)
+        .then((r) => invoke("control_reply", { id: cmd.id, response: { id: cmd.id, ...r } }))
+        .catch((err) =>
+          invoke("control_reply", {
+            id: cmd.id,
+            response: { id: cmd.id, ok: false, error: String(err) },
+          }),
+        );
+    });
+    void listen<ControlCommand>("control://command", (e) => void this.dispatch(e.payload));
+  }
 
-  // App shortcuts. Runs inside xterm's key path (Pane.attachCustomKeyEventHandler);
-  // return true to consume the key (not forwarded to the shell).
-  layout.setKeyHandler((e: KeyboardEvent): boolean => {
+  get activeWs(): Workspace {
+    return this.workspaces[this.active];
+  }
+  get activeLayout(): Layout {
+    return this.activeWs.layout;
+  }
+
+  // ---- workspaces ----
+  newWorkspace(): Workspace {
+    const grid = document.createElement("div");
+    grid.className = "ws-grid";
+    this.content.appendChild(grid);
+
+    const layout = new Layout(grid, newTerminalLeaf());
+    layout.setPaneFactory(newTerminalLeaf);
+    layout.setKeyHandler((e) => this.onKey(e));
+    const ws: Workspace = {
+      id: this.nextWsId++,
+      title: `Workspace ${this.nextWsId - 1}`,
+      grid,
+      layout,
+    };
+    layout.setNotifyHandler((pane, t, b) => this.notifs.add(pane.paneId, t, b, ws.id));
+    layout.onFocusChange = (pane) => this.notifs.clearForPane(pane.paneId);
+
+    this.workspaces.push(ws);
+    this.selectWorkspace(this.workspaces.length - 1);
+    return ws;
+  }
+
+  selectWorkspace(index: number): void {
+    if (index < 0 || index >= this.workspaces.length) return;
+    const prev = this.workspaces[this.active];
+    if (prev && prev !== this.workspaces[index]) {
+      prev.layout.setVisible(false);
+      prev.grid.style.display = "none";
+    }
+    this.active = index;
+    this.activeWs.grid.style.display = "";
+    this.activeWs.layout.setVisible(true);
+    this.activeWs.layout.refitAll();
+    this.activeWs.layout.focusedPane.focus();
+    this.renderSidebar();
+  }
+
+  closeWorkspace(id: number): void {
+    const i = this.workspaces.findIndex((w) => w.id === id);
+    if (i < 0 || this.workspaces.length === 1) return; // keep at least one
+    const ws = this.workspaces[i];
+    void ws.layout.disposeAll();
+    ws.grid.remove();
+    this.workspaces.splice(i, 1);
+    if (this.active >= this.workspaces.length) this.active = this.workspaces.length - 1;
+    else if (i <= this.active && this.active > 0) this.active--;
+    this.selectWorkspace(this.active);
+  }
+
+  nextWorkspace(): void {
+    this.selectWorkspace((this.active + 1) % this.workspaces.length);
+  }
+  prevWorkspace(): void {
+    this.selectWorkspace((this.active - 1 + this.workspaces.length) % this.workspaces.length);
+  }
+
+  private paneElAcrossWs(leafId: number): HTMLElement | null {
+    for (const w of this.workspaces) {
+      const p = w.layout.paneById(leafId);
+      if (p) return p.el;
+    }
+    return null;
+  }
+  private focusPaneAcrossWs(leafId: number): void {
+    for (let i = 0; i < this.workspaces.length; i++) {
+      const p = this.workspaces[i].layout.paneById(leafId);
+      if (p) {
+        this.selectWorkspace(i);
+        this.workspaces[i].layout.setFocus(p);
+        return;
+      }
+    }
+  }
+
+  // ---- sidebar ----
+  toggleSidebar(): void {
+    this.sidebarVisible = !this.sidebarVisible;
+    this.sidebar.style.display = this.sidebarVisible ? "" : "none";
+  }
+
+  private renderSidebar(): void {
+    const rows = this.workspaces.map((w, i) => {
+      const row = document.createElement("div");
+      row.className = "ws-row" + (i === this.active ? " active" : "");
+      const label = document.createElement("span");
+      label.className = "ws-label";
+      label.textContent = w.title;
+      row.onclick = () => this.selectWorkspace(i);
+      row.append(label);
+      const unread = this.notifs.unreadForWs(w.id);
+      if (unread > 0) {
+        const badge = document.createElement("span");
+        badge.className = "ws-badge";
+        badge.textContent = String(unread);
+        row.append(badge);
+      }
+      if (this.workspaces.length > 1) {
+        const x = document.createElement("button");
+        x.className = "ws-close";
+        x.textContent = "✕";
+        x.onclick = (e) => {
+          e.stopPropagation();
+          this.closeWorkspace(w.id);
+        };
+        row.append(x);
+      }
+      return row;
+    });
+    const add = document.createElement("button");
+    add.className = "ws-add";
+    add.textContent = "+ Workspace";
+    add.onclick = () => this.newWorkspace();
+    this.sidebar.replaceChildren(...rows, add);
+  }
+
+  // ---- shortcuts ----
+  private onKey(e: KeyboardEvent): boolean {
     const key = e.key.toLowerCase();
+    const layout = this.activeLayout;
+    const focusedTerminal = (): Pane | null => {
+      const s = layout.focusedSurface;
+      return s.kind === "terminal" ? (s as Pane) : null;
+    };
 
-    // Split focused pane, auto direction: Alt+Shift+D
     if (e.altKey && e.shiftKey && key === "d") {
       layout.splitWithNew();
       return true;
     }
-    // Explicit splits: Alt+Shift+Right (side), Alt+Shift+Down (stacked)
     if (e.altKey && e.shiftKey && e.key === "ArrowRight") {
       layout.splitWithNew("row");
       return true;
@@ -112,12 +257,26 @@ function main() {
       layout.splitWithNew("col");
       return true;
     }
-    // Open a browser pane in a split: Alt+Shift+B
     if (e.altKey && e.shiftKey && key === "b") {
       layout.splitFocused(newBrowserLeaf());
       return true;
     }
-    // Close focused PANE: Ctrl+Shift+W ; close focused TAB: Ctrl+W
+    // New workspace (Ctrl+N), toggle sidebar (Ctrl+B)
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "n") {
+      this.newWorkspace();
+      return true;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "b") {
+      this.toggleSidebar();
+      return true;
+    }
+    // Jump workspace: Alt+1..8 ; Alt+9 = last ; next/prev: Alt+Shift+. / ,
+    if (e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+      const n = parseInt(e.key, 10);
+      this.selectWorkspace(n === 9 ? this.workspaces.length - 1 : n - 1);
+      return true;
+    }
+    // Close pane (Ctrl+Shift+W) vs close tab (Ctrl+W)
     if (e.ctrlKey && e.shiftKey && key === "w") {
       layout.closeFocused();
       return true;
@@ -126,7 +285,7 @@ function main() {
       layout.focusedPane.closeActiveSurface?.();
       return true;
     }
-    // Surface tabs: new (Ctrl+T), next (Ctrl+Tab), prev (Ctrl+Shift+Tab)
+    // Surface tabs
     if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "t") {
       layout.focusedPane.newTerminalTab?.();
       return true;
@@ -136,27 +295,25 @@ function main() {
       else layout.focusedPane.nextSurface?.();
       return true;
     }
-    // Jump to tab: Ctrl+1..8 ; Ctrl+9 = last
     if (e.ctrlKey && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
       const n = parseInt(e.key, 10);
       layout.focusedPane.selectSurface?.(n === 9 ? 999 : n - 1);
       return true;
     }
-    // Notifications panel: Alt+Shift+N ; jump latest unread: Alt+Shift+U
+    // Notifications
     if (e.altKey && e.shiftKey && key === "n") {
-      notifs.togglePanel();
+      this.notifs.togglePanel();
       return true;
     }
     if (e.altKey && e.shiftKey && key === "u") {
-      notifs.jumpLatestUnread();
+      this.notifs.jumpLatestUnread();
       return true;
     }
-    // Clear scrollback: Ctrl+Shift+K
+    // Terminal UX
     if (e.ctrlKey && e.shiftKey && key === "k") {
       focusedTerminal()?.clear();
       return true;
     }
-    // Font size: Ctrl+= / Ctrl+- / Ctrl+0
     if (e.ctrlKey && !e.altKey && (key === "=" || key === "+")) {
       focusedTerminal()?.adjustFontSize(1);
       return true;
@@ -169,7 +326,6 @@ function main() {
       focusedTerminal()?.adjustFontSize(0);
       return true;
     }
-    // Copy / paste / select-all: Ctrl+Shift+C / V / A
     if (e.ctrlKey && e.shiftKey && key === "c") {
       void focusedTerminal()?.copySelection();
       return true;
@@ -182,7 +338,6 @@ function main() {
       focusedTerminal()?.selectAll();
       return true;
     }
-    // Zoom focused pane: Alt+Shift+Z ; equalize: Alt+Shift+E ; flash: Ctrl+Shift+H
     if (e.altKey && e.shiftKey && key === "z") {
       layout.toggleZoom();
       return true;
@@ -210,15 +365,16 @@ function main() {
       }
     }
     return false;
-  });
+  }
 
-  // External control: agent tmux-shim / CLI / scripts drive the grid via the
-  // named-pipe control server (\\.\pipe\scanline).
-  const targetPane = (surface?: number): PaneLike | null =>
-    typeof surface === "number" ? layout.surfaceById(surface) : layout.focusedSurface;
-
-  // Resolve a browser surface to drive: explicit surface, else focused, else first.
-  const browserSurface = (surface?: number): number | null => {
+  // ---- control protocol ----
+  private targetPane(surface?: number): PaneLike | null {
+    return typeof surface === "number"
+      ? this.activeLayout.surfaceById(surface)
+      : this.activeLayout.focusedSurface;
+  }
+  private browserSurface(surface?: number): number | null {
+    const layout = this.activeLayout;
     if (typeof surface === "number") {
       const s = layout.surfaceById(surface);
       if (s && s.kind === "browser") return s.paneId;
@@ -227,12 +383,11 @@ function main() {
     if (fs.kind === "browser") return fs.paneId;
     const b = layout.serialize().find((x) => x.kind === "browser");
     return b ? b.id : null;
-  };
+  }
 
-  const dispatch = async (cmd: ControlCommand): Promise<ControlResult> => {
-    if (!cmd || typeof cmd.method !== "string") {
-      return { ok: false, error: "missing method" };
-    }
+  private async dispatch(cmd: ControlCommand): Promise<ControlResult> {
+    if (!cmd || typeof cmd.method !== "string") return { ok: false, error: "missing method" };
+    const layout = this.activeLayout;
     switch (cmd.method) {
       case "pane.split": {
         const dir = cmd.dir === "col" || cmd.dir === "row" ? cmd.dir : undefined;
@@ -247,6 +402,35 @@ function main() {
       case "pane.close":
         layout.closeFocused();
         return { ok: true };
+      case "pane.focus":
+        if (cmd.dir === "left" || cmd.dir === "right" || cmd.dir === "up" || cmd.dir === "down") {
+          layout.focusDir(cmd.dir);
+          return { ok: true };
+        }
+        if (typeof cmd.surface === "number") {
+          const c = layout.containerOfSurface(cmd.surface);
+          if (!c) return { ok: false, error: `no surface ${cmd.surface}` };
+          layout.setFocus(c);
+          return { ok: true };
+        }
+        return { ok: false, error: "pane.focus needs dir or surface" };
+      case "pane.list":
+      case "surface.list":
+        return { ok: true, result: layout.serialize() };
+      case "pane.equalize":
+        layout.equalize();
+        return { ok: true };
+      case "pane.zoom":
+        layout.toggleZoom();
+        return { ok: true };
+      case "pane.resize":
+        layout.resizeFocused(typeof cmd.delta === "number" ? cmd.delta : 0.05);
+        return { ok: true };
+      case "pane.clear": {
+        const p = this.targetPane(cmd.surface);
+        if (p && p.kind === "terminal") (p as Pane).clear();
+        return { ok: true };
+      }
       case "surface.new":
         layout.focusedPane.newTerminalTab?.();
         return { ok: true };
@@ -262,27 +446,9 @@ function main() {
       case "surface.select":
         layout.focusedPane.selectSurface?.(typeof cmd.delta === "number" ? cmd.delta : 0);
         return { ok: true };
-      case "pane.focus":
-        if (cmd.dir === "left" || cmd.dir === "right" || cmd.dir === "up" || cmd.dir === "down") {
-          layout.focusDir(cmd.dir);
-          return { ok: true };
-        }
-        if (typeof cmd.surface === "number") {
-          const c = layout.containerOfSurface(cmd.surface);
-          if (!c) return { ok: false, error: `no surface ${cmd.surface}` };
-          layout.setFocus(c);
-          return { ok: true };
-        }
-        return { ok: false, error: "pane.focus needs dir or surface" };
-      case "browser.open":
-        layout.splitFocused(newBrowserLeaf(cmd.url));
-        return { ok: true };
-      case "pane.list":
-      case "surface.list":
-        return { ok: true, result: layout.serialize() };
       case "surface.send_text":
       case "surface.send_key": {
-        const p = targetPane(cmd.surface);
+        const p = this.targetPane(cmd.surface);
         if (!p) return { ok: false, error: "no target surface" };
         if (p.kind !== "terminal") return { ok: false, error: "surface is not a terminal" };
         const bytes =
@@ -291,102 +457,104 @@ function main() {
         return { ok: true };
       }
       case "surface.read_text": {
-        const p = targetPane(cmd.surface);
+        const p = this.targetPane(cmd.surface);
         if (!p) return { ok: false, error: "no target surface" };
         if (p.kind !== "terminal") return { ok: false, error: "surface is not a terminal" };
         return { ok: true, result: { text: (p as Pane).readText() } };
       }
-      case "pane.clear": {
-        const p = targetPane(cmd.surface);
-        if (p && p.kind === "terminal") (p as Pane).clear();
+      case "browser.open":
+        layout.splitFocused(newBrowserLeaf(cmd.url));
         return { ok: true };
+      case "browser": {
+        const sid = this.browserSurface(cmd.surface);
+        if (sid == null) return { ok: false, error: "no browser surface" };
+        return await browserDispatch(sid, cmd.verb ?? "", cmd.args ?? []);
       }
-      case "pane.equalize":
-        layout.equalize();
-        return { ok: true };
-      case "pane.zoom":
-        layout.toggleZoom();
-        return { ok: true };
-      case "pane.resize":
-        layout.resizeFocused(typeof cmd.delta === "number" ? cmd.delta : 0.05);
-        return { ok: true };
-      case "notif.list":
-        return { ok: true, result: notifs.list() };
-      case "notif.clear":
-        notifs.clearAll();
-        return { ok: true };
-      case "system.ping":
-        return { ok: true, result: { pong: true } };
-      case "system.identify":
-        return { ok: true, result: { focused: layout.focusedPane.paneId } };
-      case "system.capabilities":
-        return {
-          ok: true,
-          result: {
-            methods: [
-              "pane.split",
-              "pane.new",
-              "pane.close",
-              "pane.focus",
-              "pane.list",
-              "surface.list",
-              "surface.new",
-              "surface.next",
-              "surface.prev",
-              "surface.close",
-              "surface.select",
-              "surface.send_text",
-              "surface.send_key",
-              "surface.read_text",
-              "pane.clear",
-              "pane.equalize",
-              "pane.zoom",
-              "pane.resize",
-              "notif.list",
-              "notif.clear",
-              "browser.open",
-              "browser",
-              "notify",
-              "system.ping",
-              "system.identify",
-              "system.capabilities",
-            ],
-          },
-        };
       case "notify": {
         const c =
           typeof cmd.surface === "number"
             ? layout.containerOfSurface(cmd.surface)
             : layout.focusedPane;
-        notifs.add((c ?? layout.focusedPane).paneId, cmd.title ?? "", cmd.body ?? cmd.text ?? "");
+        const ws =
+          this.workspaces.find((w) => w.layout.paneById((c ?? layout.focusedPane).paneId)) ??
+          this.activeWs;
+        this.notifs.add(
+          (c ?? layout.focusedPane).paneId,
+          cmd.title ?? "",
+          cmd.body ?? cmd.text ?? "",
+          ws.id,
+        );
         return { ok: true };
       }
-      case "browser": {
-        const sid = browserSurface(cmd.surface);
-        if (sid == null) return { ok: false, error: "no browser surface" };
-        return await browserDispatch(sid, cmd.verb ?? "", cmd.args ?? []);
+      case "notif.list":
+        return { ok: true, result: this.notifs.list() };
+      case "notif.clear":
+        this.notifs.clearAll();
+        return { ok: true };
+      // ---- workspaces ----
+      case "workspace.new": {
+        const ws = this.newWorkspace();
+        return { ok: true, result: { id: ws.id, title: ws.title } };
       }
+      case "workspace.list":
+        return {
+          ok: true,
+          result: this.workspaces.map((w, i) => ({
+            id: w.id,
+            title: w.title,
+            active: i === this.active,
+            unread: this.notifs.unreadForWs(w.id),
+          })),
+        };
+      case "workspace.current":
+        return { ok: true, result: { id: this.activeWs.id, title: this.activeWs.title } };
+      case "workspace.select": {
+        const i = this.workspaces.findIndex((w) => w.id === cmd.workspace);
+        if (i < 0) return { ok: false, error: `no workspace ${cmd.workspace}` };
+        this.selectWorkspace(i);
+        return { ok: true };
+      }
+      case "workspace.close":
+        if (typeof cmd.workspace !== "number") return { ok: false, error: "workspace id required" };
+        this.closeWorkspace(cmd.workspace);
+        return { ok: true };
+      case "workspace.rename": {
+        const w = this.workspaces.find((x) => x.id === cmd.workspace) ?? this.activeWs;
+        w.title = cmd.name ?? w.title;
+        this.renderSidebar();
+        return { ok: true };
+      }
+      case "system.ping":
+        return { ok: true, result: { pong: true } };
+      case "system.identify":
+        return {
+          ok: true,
+          result: { focused: layout.focusedSurface.paneId, workspace: this.activeWs.id },
+        };
+      case "system.capabilities":
+        return { ok: true, result: { methods: CAPABILITIES } };
       default:
         return { ok: false, error: `unknown method ${cmd.method}` };
     }
-  };
+  }
+}
 
-  // V2 request/response: compute a result and reply keyed by the request id.
-  void listen<ControlCommand>("control://request", (e) => {
-    const cmd = e.payload;
-    dispatch(cmd)
-      .then((r) => invoke("control_reply", { id: cmd.id, response: { id: cmd.id, ...r } }))
-      .catch((err) =>
-        invoke("control_reply", {
-          id: cmd.id,
-          response: { id: cmd.id, ok: false, error: String(err) },
-        }),
-      );
-  });
-  // Legacy fire-and-forget (no id).
-  void listen<ControlCommand>("control://command", (e) => {
-    void dispatch(e.payload);
-  });
+const CAPABILITIES = [
+  "pane.split", "pane.new", "pane.close", "pane.focus", "pane.list", "surface.list",
+  "pane.equalize", "pane.zoom", "pane.resize", "pane.clear",
+  "surface.new", "surface.next", "surface.prev", "surface.close", "surface.select",
+  "surface.send_text", "surface.send_key", "surface.read_text",
+  "browser.open", "browser", "notify", "notif.list", "notif.clear",
+  "workspace.new", "workspace.list", "workspace.current", "workspace.select",
+  "workspace.close", "workspace.rename",
+  "system.ping", "system.identify", "system.capabilities",
+];
+
+function main() {
+  const sidebar = document.getElementById("sidebar");
+  const content = document.getElementById("content");
+  if (!sidebar || !content) return;
+  new App(sidebar, content);
 }
 
 window.addEventListener("DOMContentLoaded", main);

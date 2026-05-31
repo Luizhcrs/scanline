@@ -13,12 +13,103 @@
 
 html,
 body,
-#app,
-#workspace {
+#app {
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
+}
+
+/* App shell: vertical-tabs sidebar + content. */
+#app {
+  display: flex;
+  flex-direction: row;
+}
+#sidebar {
+  flex: 0 0 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  background: #0a0d13;
+  border-right: 1px solid #1c2230;
+  overflow-y: auto;
+}
+#content {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* One grid per workspace; only the active is shown. */
+.ws-grid {
+  position: absolute;
+  inset: 0;
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: #8a8f99;
+  font: 12px/1.2 Consolas, monospace;
+  cursor: pointer;
+  user-select: none;
+}
+.ws-row:hover {
+  background: #11151f;
+}
+.ws-row.active {
+  background: #11151f;
+  color: #c5c8c6;
+  border-left: 2px solid var(--focus);
+}
+.ws-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #5aa0ff;
+  color: #061018;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.ws-close {
+  background: none;
+  border: none;
+  color: #8a8f99;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.ws-close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+.ws-add {
+  margin-top: 6px;
+  background: #11151f;
+  border: 1px solid #1c2230;
+  color: #8a8f99;
+  border-radius: 6px;
+  padding: 6px;
+  font: 12px Consolas, monospace;
+  cursor: pointer;
+}
+.ws-add:hover {
+  color: #c5c8c6;
+  background: #1c2230;
 }
 
 /* A split container holds two children and a gutter between them. */

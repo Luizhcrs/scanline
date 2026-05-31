@@ -298,6 +298,17 @@ export class Layout {
     for (const p of this.collectPanes(this.root)) p.refit();
   }
 
+  /** Show/hide all panes (used on workspace switch: an inactive workspace must
+   *  hide its native browser webviews, which otherwise float over everything). */
+  setVisible(visible: boolean): void {
+    for (const p of this.collectPanes(this.root)) p.setVisible?.(visible);
+  }
+
+  /** Dispose every pane (used when a workspace is closed). */
+  async disposeAll(): Promise<void> {
+    for (const p of this.collectPanes(this.root)) await p.dispose();
+  }
+
   private renderNode(node: Node): HTMLElement {
     if (node.kind === "leaf") {
       node.pane.el.style.flex = "1 1 auto";
