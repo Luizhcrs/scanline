@@ -74,26 +74,65 @@ export class Layout {
   /** Serialize the grid as a flat list of panes (for pane.list / surface.list). */
   serialize(): Array<{
     id: number;
+    pane: number;
     kind: string;
     title: string;
     focused: boolean;
+    active: boolean;
     rect: { x: number; y: number; w: number; h: number };
   }> {
-    return this.collectPanes(this.root).map((p) => {
-      const r = p.el.getBoundingClientRect();
-      return {
-        id: p.paneId,
-        kind: p.kind,
-        title: p.title ?? "",
-        focused: p === this.focused,
-        rect: { x: r.left, y: r.top, w: r.width, h: r.height },
-      };
-    });
+    const out: Array<{
+      id: number;
+      pane: number;
+      kind: string;
+      title: string;
+      focused: boolean;
+      active: boolean;
+      rect: { x: number; y: number; w: number; h: number };
+    }> = [];
+    for (const c of this.collectPanes(this.root)) {
+      const surfaces = c.allSurfaces ?? [c];
+      const activeS = c.activeSurface ?? c;
+      for (const s of surfaces) {
+        const r = s.el.getBoundingClientRect();
+        out.push({
+          id: s.paneId,
+          pane: c.paneId,
+          kind: s.kind,
+          title: s.title ?? "",
+          focused: c === this.focused && s === activeS,
+          active: s === activeS,
+          rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+        });
+      }
+    }
+    return out;
   }
 
-  /** Find a pane by its stable id. */
+  /** Find a leaf (pane container) by its stable id. */
   paneById(id: number): PaneLike | null {
     return this.collectPanes(this.root).find((p) => p.paneId === id) ?? null;
+  }
+
+  /** Find a surface (tab) by its stable id, across all leaves. */
+  surfaceById(id: number): PaneLike | null {
+    for (const c of this.collectPanes(this.root)) {
+      for (const s of c.allSurfaces ?? [c]) if (s.paneId === id) return s;
+    }
+    return null;
+  }
+
+  /** The active surface of the focused leaf (what input/scripts target). */
+  get focusedSurface(): PaneLike {
+    return this.focused.activeSurface ?? this.focused;
+  }
+
+  /** The leaf (container) that holds a given surface id. */
+  containerOfSurface(id: number): PaneLike | null {
+    for (const c of this.collectPanes(this.root)) {
+      for (const s of c.allSurfaces ?? [c]) if (s.paneId === id) return c;
+    }
+    return null;
   }
 
   /** Reset every split to 50/50. */

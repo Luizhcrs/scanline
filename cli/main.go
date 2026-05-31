@@ -117,6 +117,7 @@ func usage() {
   scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
   scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
+  scanline surface [new|next|prev|close]             per-pane terminal tabs
   scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
   scanline notif [clear]                             list (or clear) notifications
   scanline ping                                      health check
@@ -219,6 +220,12 @@ func main() {
 		send("notify", m)
 	case "close":
 		send("pane.close", nil)
+	case "surface":
+		sub := "new"
+		if len(args) >= 2 {
+			sub = args[1]
+		}
+		send("surface."+sub, nil)
 	case "equalize":
 		send("pane.equalize", nil)
 	case "zoom":

@@ -57,6 +57,100 @@ body,
   cursor: row-resize;
 }
 
+/* A grid leaf: a container of surface tabs. The focus/notification ring lives
+   here (the visible unit in the grid), not on the inner surface. */
+.pane-container {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid transparent;
+  background: var(--bg);
+  overflow: hidden;
+}
+.pane-container.focused {
+  border-color: rgba(95, 249, 103, 0.35);
+}
+.pane-container.notif-ring {
+  border-color: #5aa0ff;
+  box-shadow: inset 0 0 0 1px #5aa0ff, 0 0 10px rgba(90, 160, 255, 0.5);
+}
+.pane-container.flash {
+  animation: pane-flash 0.4s ease-in-out 2;
+}
+.surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.surface-body > .pane {
+  border-color: transparent !important;
+}
+.surface-tabs {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px 3px 0;
+  background: #0a0d13;
+  overflow-x: auto;
+}
+.surface-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  padding: 0 4px 0 8px;
+  background: #11151f;
+  border: 1px solid #1c2230;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  color: #8a8f99;
+  font: 11px/1 Consolas, monospace;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.surface-tab.active {
+  background: var(--bg);
+  color: #c5c8c6;
+}
+.surface-tab.flagged {
+  color: #5aa0ff;
+}
+.surface-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.surface-tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.surface-tab-close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+.surface-tab-add {
+  background: none;
+  border: none;
+  color: #8a8f99;
+  font-size: 14px;
+  width: 22px;
+  cursor: pointer;
+}
+.surface-tab-add:hover {
+  color: #c5c8c6;
+}
+
 /* A terminal pane. */
 .pane {
   flex: 1 1 auto;

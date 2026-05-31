@@ -41,6 +41,21 @@ export interface PaneLike {
   blur(): void;
   /** Re-fit to the current element size. */
   refit(): void;
+  // ---- surface-tab container hooks (PaneContainer implements these) ----
+  /** All surfaces (tabs) in this leaf; absent on a plain surface. */
+  readonly allSurfaces?: PaneLike[];
+  /** The currently shown surface. */
+  readonly activeSurface?: PaneLike;
+  /** Open a new terminal tab in this leaf. */
+  newTerminalTab?(): void;
+  /** Activate the next / previous tab. */
+  nextSurface?(): void;
+  prevSurface?(): void;
+  /** Close the active tab (closes the whole leaf if it was the last). */
+  closeActiveSurface?(): void;
+  /** Show/hide the surface when its tab (de)activates. Browser panes hide their
+   *  native webview; terminals can no-op. Optional. */
+  setVisible?(visible: boolean): void;
   /** Tear down resources. */
   dispose(): Promise<void>;
 }

@@ -164,6 +164,14 @@ export class BrowserPane implements PaneLike {
     invoke("browser_bounds", { id: this.paneId, ...next }).catch(() => {});
   }
 
+  /** Hide/show the native webview when the surface tab (de)activates. */
+  setVisible(visible: boolean): void {
+    if (this.created) {
+      invoke("browser_visible", { id: this.paneId, visible }).catch(() => {});
+    }
+    if (visible) requestAnimationFrame(() => this.refit());
+  }
+
   focus(): void {
     this.el.classList.add("focused");
     this.urlInput.focus();
