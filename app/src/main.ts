@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { Pane } from "./pane";
 import { BrowserView, tabLabel } from "./browser";
 import { Layout } from "./layout";
@@ -193,12 +192,6 @@ function main() {
   const workspace = document.getElementById("workspace");
   if (!tabbar || !content || !workspace) return;
   new Shell(tabbar, content, workspace);
-
-  // Spike 1 (GO/NO-GO): prove the WebView2 DevTools Protocol bridge returns
-  // real data. Result is printed to the `tauri dev` terminal by the Rust side.
-  invoke<string>("cdp_selftest")
-    .then((r) => console.log("CDP selftest:\n" + r))
-    .catch((e) => console.error("CDP selftest failed:", e));
 }
 
 window.addEventListener("DOMContentLoaded", main);
