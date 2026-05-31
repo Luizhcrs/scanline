@@ -14,6 +14,10 @@ async function main() {
 
   const first = await newPane();
   const layout = new Layout(workspace, first);
+  layout.setPaneFactory(newPane);
+
+  // Keep native browser webviews aligned when the window resizes.
+  window.addEventListener("resize", () => layout.refitAll());
 
   // Shortcut handler. Runs inside xterm's key path (see Pane.attachCustomKeyEventHandler).
   // Return true to consume the key (not forwarded to the shell).

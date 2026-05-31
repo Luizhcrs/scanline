@@ -19,6 +19,10 @@ export interface PaneLike {
   onExit?: (pane: PaneLike) => void;
   /** Fired when the pane requests focus (e.g. clicked). */
   onFocusRequest?: (pane: PaneLike) => void;
+  /** Fired when the pane's close button is clicked. */
+  onCloseRequest?: (pane: PaneLike) => void;
+  /** Fired when the pane's split button is clicked. */
+  onSplitRequest?: (pane: PaneLike) => void;
   /** Give this pane keyboard focus + focused styling. */
   focus(): void;
   /** Remove focused styling. */

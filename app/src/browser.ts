@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { type PaneLike, nextPaneId } from "./types";
 
 /** Normalize user input into a URL (add scheme, or web-search bare terms). */
@@ -5,31 +6,39 @@ function toUrl(input: string): string {
   const s = input.trim();
   if (!s) return "about:blank";
   if (/^[a-z]+:\/\//i.test(s)) return s;
-  // Looks like a domain or localhost? add https/http.
   if (/^localhost(:\d+)?(\/|$)/.test(s)) return `http://${s}`;
   if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(s)) return `https://${s}`;
   return `https://duckduckgo.com/?q=${encodeURIComponent(s)}`;
 }
 
 /**
- * A browser pane: a URL bar plus an <iframe> rendering real web inside the
- * WebView2 window. Lives in a layout leaf like a terminal pane.
+ * A browser pane backed by a native Tauri child webview (real WebView2),
+ * which ignores X-Frame-Options so any site loads (google, github, …).
  *
- * Note: sites that send X-Frame-Options: DENY (e.g. google.com) refuse to load
- * in an iframe. Local dev servers, docs, and most content work. Native
- * embedded webviews are a future upgrade for the blocked cases.
+ * The webview is a native layer floating over the DOM. We keep it aligned with
+ * the pane's "viewport" element by pushing its rect to the backend whenever the
+ * layout changes (Layout.refitAll → refit). The control bar stays in the DOM
+ * (above the webview) so its buttons are always clickable — even though the
+ * webview captures keyboard focus and app shortcuts can't reach it.
  */
 export class BrowserPane implements PaneLike {
   readonly paneId = nextPaneId();
   readonly el: HTMLElement;
-  private iframe: HTMLIFrameElement;
+  private viewport: HTMLElement;
   private urlInput: HTMLInputElement;
+  private created = false;
+  private pendingUrl: string;
+  private lastRect = { x: -1, y: -1, w: -1, h: -1 };
 
   keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   onExit?: (pane: PaneLike) => void;
   onFocusRequest?: (pane: PaneLike) => void;
+  onCloseRequest?: (pane: PaneLike) => void;
+  onSplitRequest?: (pane: PaneLike) => void;
 
   constructor(initialUrl = "https://duckduckgo.com") {
+    this.pendingUrl = toUrl(initialUrl);
+
     this.el = document.createElement("div");
     this.el.className = "pane browser";
     this.el.tabIndex = -1;
@@ -37,20 +46,20 @@ export class BrowserPane implements PaneLike {
     const bar = document.createElement("div");
     bar.className = "browser-bar";
 
-    const back = document.createElement("button");
-    back.textContent = "‹";
-    back.title = "Back";
-    back.onclick = () => this.iframe.contentWindow?.history.back();
+    const mkBtn = (label: string, title: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.title = title;
+      b.onclick = (e) => {
+        e.stopPropagation();
+        fn();
+      };
+      return b;
+    };
 
-    const fwd = document.createElement("button");
-    fwd.textContent = "›";
-    fwd.title = "Forward";
-    fwd.onclick = () => this.iframe.contentWindow?.history.forward();
-
-    const reload = document.createElement("button");
-    reload.textContent = "⟳";
-    reload.title = "Reload";
-    reload.onclick = () => this.navigate(this.urlInput.value);
+    const back = mkBtn("‹", "Back", () => invoke("browser_back", { id: this.paneId }).catch(() => {}));
+    const fwd = mkBtn("›", "Forward", () => invoke("browser_forward", { id: this.paneId }).catch(() => {}));
+    const reload = mkBtn("⟳", "Reload", () => this.navigate(this.urlInput.value));
 
     this.urlInput = document.createElement("input");
     this.urlInput.className = "browser-url";
@@ -63,38 +72,65 @@ export class BrowserPane implements PaneLike {
       }
     });
 
-    bar.append(back, fwd, reload, this.urlInput);
-
-    this.iframe = document.createElement("iframe");
-    this.iframe.className = "browser-frame";
-    this.iframe.setAttribute(
-      "sandbox",
-      "allow-scripts allow-same-origin allow-forms allow-popups",
+    // Pane controls — always clickable (DOM), independent of webview focus.
+    const split = mkBtn("⊟", "Split (new terminal below/beside)", () =>
+      this.onSplitRequest?.(this),
     );
+    const close = mkBtn("✕", "Close pane", () => this.onCloseRequest?.(this));
+    close.classList.add("close");
 
-    this.el.append(bar, this.iframe);
+    bar.append(back, fwd, reload, this.urlInput, split, close);
 
-    // App shortcuts: the browser pane isn't an xterm, so we capture keys here.
-    this.el.addEventListener("keydown", (e) => {
-      if (this.keyHandler && this.keyHandler(e)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    });
+    this.viewport = document.createElement("div");
+    this.viewport.className = "browser-viewport";
+
+    this.el.append(bar, this.viewport);
     this.el.addEventListener("mousedown", () => this.onFocusRequest?.(this));
-
-    this.navigate(initialUrl);
   }
 
   navigate(input: string): void {
     const url = toUrl(input);
     this.urlInput.value = url;
-    this.iframe.src = url;
+    if (this.created) {
+      invoke("browser_navigate", { id: this.paneId, url }).catch(() => {});
+    } else {
+      this.pendingUrl = url;
+    }
+  }
+
+  /** Sync the native webview to the viewport element's rectangle. */
+  refit(): void {
+    const r = this.viewport.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    const next = { x: r.left, y: r.top, w: r.width, h: r.height };
+    if (
+      next.x === this.lastRect.x &&
+      next.y === this.lastRect.y &&
+      next.w === this.lastRect.w &&
+      next.h === this.lastRect.h
+    ) {
+      return; // no change
+    }
+    this.lastRect = next;
+
+    if (!this.created) {
+      this.created = true;
+      this.urlInput.value = this.pendingUrl;
+      invoke("browser_open", {
+        id: this.paneId,
+        url: this.pendingUrl,
+        x: next.x,
+        y: next.y,
+        w: next.w,
+        h: next.h,
+      }).catch((err) => console.error("browser_open", err));
+    } else {
+      invoke("browser_bounds", { id: this.paneId, ...next }).catch(() => {});
+    }
   }
 
   focus(): void {
     this.el.classList.add("focused");
-    // Focus the URL bar so shortcuts work without clicking into the page.
     this.urlInput.focus();
     this.urlInput.select();
   }
@@ -103,12 +139,10 @@ export class BrowserPane implements PaneLike {
     this.el.classList.remove("focused");
   }
 
-  refit(): void {
-    /* iframe fills its container via CSS; nothing to do */
-  }
-
   async dispose(): Promise<void> {
-    this.iframe.src = "about:blank";
+    if (this.created) {
+      await invoke("browser_close", { id: this.paneId }).catch(() => {});
+    }
     this.el.remove();
   }
 }

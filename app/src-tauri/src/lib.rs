@@ -12,7 +12,10 @@ use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::webview::WebviewBuilder;
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl, Wry,
+};
 
 /// A live pseudo-terminal: its master (for resize), input writer, and the
 /// child process handle (kept alive so the shell isn't reaped).
@@ -142,13 +145,127 @@ fn pty_close(state: State<PtyManager>, id: u32) -> Result<(), String> {
     Ok(())
 }
 
+// ---- Browser panes (native child webviews) ----
+//
+// A real WebView2 child layered over the DOM, positioned to match a browser
+// pane's rectangle in the grid. Unlike an <iframe>, it ignores
+// X-Frame-Options, so any site (google, github, …) loads.
+
+#[derive(Default)]
+struct BrowserManager {
+    views: Mutex<HashMap<u32, tauri::Webview<Wry>>>,
+}
+
+/// Create a child webview on the main window at the given logical bounds.
+#[tauri::command]
+fn browser_open(
+    app: AppHandle,
+    browsers: State<BrowserManager>,
+    id: u32,
+    url: String,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    let window = app.get_window("main").ok_or("main window not found")?;
+    let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+    let label = format!("browser-{id}");
+    let builder = WebviewBuilder::new(label, WebviewUrl::External(parsed));
+    let webview = window
+        .add_child(
+            builder,
+            LogicalPosition::new(x, y),
+            LogicalSize::new(w.max(1.0), h.max(1.0)),
+        )
+        .map_err(|e| e.to_string())?;
+    browsers.views.lock().unwrap().insert(id, webview);
+    Ok(())
+}
+
+/// Reposition/resize a browser pane's webview to match its DOM rectangle.
+#[tauri::command]
+fn browser_bounds(
+    browsers: State<BrowserManager>,
+    id: u32,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
+        v.set_position(LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        v.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Navigate a browser pane to a new URL.
+#[tauri::command]
+fn browser_navigate(browsers: State<BrowserManager>, id: u32, url: String) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
+        let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+        v.navigate(parsed).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Hide/show a browser pane's webview (used when it scrolls offscreen).
+#[tauri::command]
+fn browser_visible(browsers: State<BrowserManager>, id: u32, visible: bool) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
+        let _ = if visible { v.show() } else { v.hide() };
+    }
+    Ok(())
+}
+
+/// Navigate back in a browser pane's history.
+#[tauri::command]
+fn browser_back(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
+        let _ = v.eval("history.back()");
+    }
+    Ok(())
+}
+
+/// Navigate forward in a browser pane's history.
+#[tauri::command]
+fn browser_forward(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().get(&id) {
+        let _ = v.eval("history.forward()");
+    }
+    Ok(())
+}
+
+/// Close and drop a browser pane's webview.
+#[tauri::command]
+fn browser_close(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    if let Some(v) = browsers.views.lock().unwrap().remove(&id) {
+        let _ = v.close();
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
+        .manage(BrowserManager::default())
         .invoke_handler(tauri::generate_handler![
-            pty_spawn, pty_write, pty_resize, pty_close
+            pty_spawn,
+            pty_write,
+            pty_resize,
+            pty_close,
+            browser_open,
+            browser_bounds,
+            browser_navigate,
+            browser_visible,
+            browser_back,
+            browser_forward,
+            browser_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

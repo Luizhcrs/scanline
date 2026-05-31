@@ -27,6 +27,7 @@ export class Layout {
   private root: Node;
   private focused: PaneLike;
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+  private paneFactory: (() => Promise<PaneLike>) | null = null;
 
   constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
@@ -42,6 +43,18 @@ export class Layout {
     for (const p of this.collectPanes(this.root)) p.keyHandler = fn;
   }
 
+  /** Provide a factory used to create a terminal pane (e.g. for split buttons). */
+  setPaneFactory(fn: () => Promise<PaneLike>): void {
+    this.paneFactory = fn;
+  }
+
+  /** Create a new terminal pane via the factory and split the focused pane. */
+  async splitWithNew(dir?: Dir): Promise<void> {
+    if (!this.paneFactory) return;
+    const p = await this.paneFactory();
+    this.splitFocused(p, dir);
+  }
+
   get focusedPane(): PaneLike {
     return this.focused;
   }
@@ -50,6 +63,11 @@ export class Layout {
   private adopt(pane: PaneLike): void {
     pane.onFocusRequest = (p) => this.setFocus(p);
     pane.onExit = (p) => this.closePane(p);
+    pane.onCloseRequest = (p) => this.closePane(p);
+    pane.onSplitRequest = (p) => {
+      this.setFocus(p);
+      void this.splitWithNew();
+    };
     pane.keyHandler = this.keyHandler;
   }
 
@@ -133,6 +151,14 @@ export class Layout {
 
   private render(): void {
     this.container.replaceChildren(this.renderNode(this.root));
+    // After the DOM reflows, re-fit every pane (terminals fit; browser panes
+    // re-sync their native webview bounds to the new rectangle).
+    requestAnimationFrame(() => this.refitAll());
+  }
+
+  /** Re-fit all panes to their current element sizes/positions. */
+  refitAll(): void {
+    for (const p of this.collectPanes(this.root)) p.refit();
   }
 
   private renderNode(node: Node): HTMLElement {
@@ -180,6 +206,8 @@ export class Layout {
         node.ratio = r;
         wrapA.style.flexBasis = `${r * 100}%`;
         wrapB.style.flexBasis = `${(1 - r) * 100}%`;
+        // Keep native webviews glued to their panes while dragging.
+        this.refitAll();
       };
       const up = () => {
         window.removeEventListener("mousemove", move);

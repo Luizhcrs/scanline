@@ -120,9 +120,14 @@ body,
 .browser-url:focus {
   border-color: rgba(95, 249, 103, 0.4);
 }
-.browser-frame {
+.browser-bar button.close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+/* The native webview floats over this element; keep it as a placeholder. */
+.browser-viewport {
   flex: 1 1 auto;
   width: 100%;
-  border: none;
-  background: #fff;
+  min-height: 0;
+  background: #0d1017;
 }
