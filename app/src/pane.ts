@@ -5,10 +5,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { type PaneLike, nextPaneId } from "./types";
 
-interface PtyData {
-  id: number;
-  bytes: number[];
-}
+/** Frontend-allocated pty ids. Allocated before spawn so per-pty event
+ *  listeners can be registered first (see Pane.mount). */
+let nextPtyId = 0;
 
 const THEME = {
   background: "#0d1017",
@@ -28,6 +27,10 @@ export class Pane implements PaneLike {
   private ptyId = -1;
   private unlisteners: UnlistenFn[] = [];
   private resizeObserver?: ResizeObserver;
+  private mounted = false;
+  private disposed = false;
+  private lastRows = -1;
+  private lastCols = -1;
 
   /** Called when the underlying process exits. */
   onExit?: (pane: PaneLike) => void;
@@ -69,32 +72,48 @@ export class Pane implements PaneLike {
     this.el.addEventListener("mousedown", () => this.onFocusRequest?.(this));
   }
 
-  /** Attach to the DOM, spawn the pty, and start streaming. */
-  async start(shell?: string): Promise<void> {
+  /**
+   * Open the terminal into its (now DOM-attached) element and spawn the pty.
+   * Called once by the Layout after the element is in the document — opening
+   * xterm on a detached 0×0 element gives a broken terminal.
+   */
+  mount(shell?: string): void {
+    if (this.mounted) return;
+    this.mounted = true;
     this.term.open(this.el);
     this.safeFit();
+    void this.spawn(shell);
+  }
 
-    this.ptyId = await invoke<number>("pty_spawn", {
+  private async spawn(shell?: string): Promise<void> {
+    // Allocate the id up front and register this pty's listeners BEFORE the
+    // spawn command — so the shell's first prompt can't outrun the listener.
+    const id = (this.ptyId = nextPtyId++);
+
+    const dataUn = await listen<number[]>(`pty://${id}/data`, (e) => {
+      if (!this.disposed) this.term.write(new Uint8Array(e.payload));
+    });
+    const exitUn = await listen(`pty://${id}/exit`, () => {
+      if (this.disposed) return;
+      this.term.write("\r\n[process exited]\r\n");
+      this.onExit?.(this);
+    });
+    this.unlisteners.push(dataUn, exitUn);
+
+    await invoke("pty_spawn", {
+      id,
       rows: this.term.rows,
       cols: this.term.cols,
       shell: shell ?? null,
     });
-
-    const dataUn = await listen<PtyData>("pty-data", (e) => {
-      if (e.payload.id === this.ptyId) {
-        this.term.write(new Uint8Array(e.payload.bytes));
-      }
-    });
-    const exitUn = await listen<number>("pty-exit", (e) => {
-      if (e.payload === this.ptyId) {
-        this.term.write("\r\n[process exited]\r\n");
-        this.onExit?.(this);
-      }
-    });
-    this.unlisteners.push(dataUn, exitUn);
+    this.lastRows = this.term.rows;
+    this.lastCols = this.term.cols;
 
     this.term.onData((data) => {
-      invoke("pty_write", { id: this.ptyId, data });
+      // xterm hands input as a string of char codes 0–255 (one byte each).
+      // Send raw bytes so non-UTF-8 sequences survive.
+      const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
+      invoke("pty_write", { id, data: bytes });
     });
 
     // Refit whenever the pane element changes size (splits, drags, window).
@@ -105,13 +124,19 @@ export class Pane implements PaneLike {
   /** Refit the terminal to its element and push the new size to the pty. */
   refit(): void {
     this.safeFit();
-    if (this.ptyId >= 0) {
-      invoke("pty_resize", {
-        id: this.ptyId,
-        rows: this.term.rows,
-        cols: this.term.cols,
-      });
+    if (this.ptyId < 0) return;
+    // ResizeObserver and the Layout's post-render rAF both call refit; only
+    // push a pty_resize when the grid size actually changed.
+    if (this.term.rows === this.lastRows && this.term.cols === this.lastCols) {
+      return;
     }
+    this.lastRows = this.term.rows;
+    this.lastCols = this.term.cols;
+    invoke("pty_resize", {
+      id: this.ptyId,
+      rows: this.term.rows,
+      cols: this.term.cols,
+    });
   }
 
   private safeFit(): void {
@@ -131,8 +156,11 @@ export class Pane implements PaneLike {
     this.el.classList.remove("focused");
   }
 
-  /** Tear down: kill the pty, drop listeners, dispose the terminal. */
+  /** Tear down: kill the pty, drop listeners, dispose the terminal.
+   *  Guarded so the onExit + onClose double-fire can't dispose twice. */
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     this.resizeObserver?.disconnect();
     for (const un of this.unlisteners) un();
     this.unlisteners = [];

@@ -23,6 +23,12 @@ export interface PaneLike {
   onCloseRequest?: (pane: PaneLike) => void;
   /** Fired when the pane's split button is clicked. */
   onSplitRequest?: (pane: PaneLike) => void;
+  /**
+   * Called once by the Layout after the pane's element is attached to the DOM.
+   * Heavy init that needs a measurable element (xterm.open, pty spawn) happens
+   * here — never in the constructor, where `el` isn't laid out yet.
+   */
+  mount(): void;
   /** Give this pane keyboard focus + focused styling. */
   focus(): void;
   /** Remove focused styling. */

@@ -27,7 +27,8 @@ export class Layout {
   private root: Node;
   private focused: PaneLike;
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
-  private paneFactory: (() => Promise<PaneLike>) | null = null;
+  private paneFactory: (() => PaneLike) | null = null;
+  private mounted = new WeakSet<PaneLike>();
 
   constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
@@ -44,15 +45,14 @@ export class Layout {
   }
 
   /** Provide a factory used to create a terminal pane (e.g. for split buttons). */
-  setPaneFactory(fn: () => Promise<PaneLike>): void {
+  setPaneFactory(fn: () => PaneLike): void {
     this.paneFactory = fn;
   }
 
   /** Create a new terminal pane via the factory and split the focused pane. */
-  async splitWithNew(dir?: Dir): Promise<void> {
+  splitWithNew(dir?: Dir): void {
     if (!this.paneFactory) return;
-    const p = await this.paneFactory();
-    this.splitFocused(p, dir);
+    this.splitFocused(this.paneFactory(), dir);
   }
 
   get focusedPane(): PaneLike {
@@ -66,7 +66,7 @@ export class Layout {
     pane.onCloseRequest = (p) => this.closePane(p);
     pane.onSplitRequest = (p) => {
       this.setFocus(p);
-      void this.splitWithNew();
+      this.splitWithNew();
     };
     pane.keyHandler = this.keyHandler;
   }
@@ -151,8 +151,16 @@ export class Layout {
 
   private render(): void {
     this.container.replaceChildren(this.renderNode(this.root));
-    // After the DOM reflows, re-fit every pane (terminals fit; browser panes
-    // re-sync their native webview bounds to the new rectangle).
+    // Elements are now in the DOM and measurable: mount any pane that hasn't
+    // been mounted yet (opens xterm, spawns its pty). Must run before the
+    // caller's setFocus, which focuses the terminal.
+    for (const p of this.collectPanes(this.root)) {
+      if (!this.mounted.has(p)) {
+        this.mounted.add(p);
+        p.mount();
+      }
+    }
+    // After the DOM reflows, re-fit every pane to its final rectangle.
     requestAnimationFrame(() => this.refitAll());
   }
 
