@@ -6,6 +6,7 @@ import { PaneContainer } from "./paneContainer";
 import { Layout } from "./layout";
 import { NotificationStore } from "./notifications";
 import { browserDispatch } from "./browserApi";
+import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import type { PaneLike } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -88,6 +89,8 @@ class App {
     number,
     { cwd: string; branch?: string | null; dirty?: boolean; pr?: string | null; ports?: number[] }
   >();
+  private palette = new CommandPalette();
+  private findBar = new FindBar();
 
   constructor(
     private sidebar: HTMLElement,
@@ -315,6 +318,93 @@ class App {
     });
   }
 
+  // ---- command palette / switcher / find ----
+  private openCommands(): void {
+    const L = this.activeLayout;
+    const cmds: PaletteItem[] = [
+      { id: "ws.new", label: "New Workspace", hint: "Ctrl+N", run: () => this.newWorkspace() },
+      { id: "ws.next", label: "Next Workspace", run: () => this.nextWorkspace() },
+      { id: "ws.prev", label: "Previous Workspace", run: () => this.prevWorkspace() },
+      { id: "split.right", label: "Split Right", hint: "Alt+Shift+Right", run: () => L.splitWithNew("row") },
+      { id: "split.down", label: "Split Down", hint: "Alt+Shift+Down", run: () => L.splitWithNew("col") },
+      { id: "tab.new", label: "New Terminal Tab", hint: "Ctrl+T", run: () => L.focusedPane.newTerminalTab?.() },
+      { id: "browser", label: "Open Browser", hint: "Alt+Shift+B", run: () => L.splitFocused(newBrowserLeaf()) },
+      { id: "pane.close", label: "Close Pane", hint: "Ctrl+Shift+W", run: () => L.closeFocused() },
+      { id: "zoom", label: "Toggle Zoom", hint: "Alt+Shift+Z", run: () => L.toggleZoom() },
+      { id: "equalize", label: "Equalize Splits", hint: "Alt+Shift+E", run: () => L.equalize() },
+      {
+        id: "clear",
+        label: "Clear Scrollback",
+        hint: "Ctrl+Shift+K",
+        run: () => {
+          const s = L.focusedSurface;
+          if (s.kind === "terminal") (s as Pane).clear();
+        },
+      },
+      { id: "notif", label: "Notifications", hint: "Alt+Shift+N", run: () => this.notifs.togglePanel() },
+      { id: "sidebar", label: "Toggle Sidebar", hint: "Ctrl+B", run: () => this.toggleSidebar() },
+      { id: "find", label: "Find…", hint: "Ctrl+F", run: () => this.openFind() },
+    ];
+    this.palette.open(cmds, "Command…");
+  }
+
+  private openSwitcher(): void {
+    const items: PaletteItem[] = [];
+    this.workspaces.forEach((w, i) => {
+      const m = this.meta.get(w.id);
+      items.push({
+        id: "ws" + w.id,
+        label: "⊞ " + w.title,
+        hint: m?.branch ? `${m.cwd} ⎇ ${m.branch}` : m?.cwd || undefined,
+        run: () => this.selectWorkspace(i),
+      });
+    });
+    for (const s of this.activeLayout.serialize()) {
+      items.push({
+        id: "sf" + s.id,
+        label: (s.kind === "browser" ? "◉ " : "❯ ") + (s.title || s.kind),
+        hint: "surface " + s.id,
+        run: () => {
+          const c = this.activeLayout.containerOfSurface(s.id);
+          if (c) this.activeLayout.setFocus(c);
+        },
+      });
+    }
+    this.palette.open(items, "Go to workspace / surface…");
+  }
+
+  private openFind(): void {
+    const s = this.activeLayout.focusedSurface;
+    let q = "";
+    this.findBar.open({
+      search: (query) => {
+        q = query;
+        this.runFind(s, q, "next");
+      },
+      next: () => this.runFind(s, q, "next"),
+      prev: () => this.runFind(s, q, "prev"),
+      closed: () => {
+        if (s.kind === "terminal") (s as Pane).clearSearch();
+      },
+    });
+  }
+
+  private runFind(s: PaneLike, q: string, dir: "next" | "prev"): void {
+    if (!q) return;
+    if (s.kind === "terminal") {
+      if (dir === "next") (s as Pane).findNext(q);
+      else (s as Pane).findPrev(q);
+    } else if (s.kind === "browser") {
+      void invoke("browser_cdp", {
+        id: s.paneId,
+        method: "Runtime.evaluate",
+        params: JSON.stringify({
+          expression: `window.find(${JSON.stringify(q)}, false, ${dir === "prev"})`,
+        }),
+      });
+    }
+  }
+
   // ---- shortcuts ----
   private onKey(e: KeyboardEvent): boolean {
     const key = e.key.toLowerCase();
@@ -324,6 +414,19 @@ class App {
       return s.kind === "terminal" ? (s as Pane) : null;
     };
 
+    // Command palette (Ctrl+Shift+P), switcher (Ctrl+P), find (Ctrl+F)
+    if (e.ctrlKey && e.shiftKey && key === "p") {
+      this.openCommands();
+      return true;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "p") {
+      this.openSwitcher();
+      return true;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "f") {
+      this.openFind();
+      return true;
+    }
     if (e.altKey && e.shiftKey && key === "d") {
       layout.splitWithNew();
       return true;
@@ -603,6 +706,15 @@ class App {
         this.renderSidebar();
         return { ok: true };
       }
+      case "ui.palette":
+        this.openCommands();
+        return { ok: true };
+      case "ui.switcher":
+        this.openSwitcher();
+        return { ok: true };
+      case "ui.find":
+        this.openFind();
+        return { ok: true };
       case "system.ping":
         return { ok: true, result: { pong: true } };
       case "system.identify":
@@ -626,6 +738,7 @@ const CAPABILITIES = [
   "browser.open", "browser", "notify", "notif.list", "notif.clear",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",
   "workspace.close", "workspace.rename",
+  "ui.palette", "ui.switcher", "ui.find",
   "system.ping", "system.identify", "system.capabilities",
 ];
 

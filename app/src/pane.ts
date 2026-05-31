@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { SearchAddon } from "@xterm/addon-search";
 import { type PaneLike, nextPaneId } from "./types";
 
 const DEFAULT_FONT_SIZE = 14;
@@ -36,6 +37,7 @@ export class Pane implements PaneLike {
   private lastRows = -1;
   private lastCols = -1;
   private serialize?: SerializeAddon;
+  private search?: SearchAddon;
 
   /** Fired on OSC 9 / OSC 777 notify sequences or the bell — wired by Layout to
    *  the notification store. */
@@ -118,8 +120,10 @@ export class Pane implements PaneLike {
     try {
       this.serialize = new SerializeAddon();
       this.term.loadAddon(this.serialize);
+      this.search = new SearchAddon();
+      this.term.loadAddon(this.search);
     } catch (e) {
-      console.warn("serialize addon unavailable:", e);
+      console.warn("serialize/search addon unavailable:", e);
     }
 
     // OSC 0/2 set the window/icon title (used for tab/sidebar labels later).
@@ -258,6 +262,17 @@ export class Pane implements PaneLike {
 
   selectAll(): void {
     this.term.selectAll();
+  }
+
+  /** Find in the terminal buffer (addon-search). */
+  findNext(q: string): void {
+    if (q) this.search?.findNext(q, { caseSensitive: false });
+  }
+  findPrev(q: string): void {
+    if (q) this.search?.findPrevious(q, { caseSensitive: false });
+  }
+  clearSearch(): void {
+    this.search?.clearDecorations();
   }
 
   focus(): void {

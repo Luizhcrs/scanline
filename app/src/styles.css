@@ -413,3 +413,94 @@ body,
   min-height: 0;
   background: #0d1017;
 }
+
+/* Command palette + switcher overlay. */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+}
+.palette-box {
+  width: 560px;
+  max-width: 90vw;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: #11151f;
+  border: 1px solid #2d3650;
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.palette-input {
+  padding: 12px 14px;
+  background: #0d1017;
+  border: none;
+  border-bottom: 1px solid #1c2230;
+  color: #c5c8c6;
+  font: 14px Consolas, monospace;
+  outline: none;
+}
+.palette-list {
+  overflow-y: auto;
+}
+.palette-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  color: #c5c8c6;
+  font: 13px Consolas, monospace;
+  cursor: pointer;
+}
+.palette-row.sel {
+  background: #1c2740;
+}
+.palette-hint {
+  color: #5a6172;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Find bar (Ctrl+F). */
+.find-bar {
+  position: fixed;
+  top: 38px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  background: #11151f;
+  border: 1px solid #2d3650;
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 2000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.find-input {
+  width: 180px;
+  padding: 5px 8px;
+  background: #0d1017;
+  border: 1px solid #1c2230;
+  border-radius: 5px;
+  color: #c5c8c6;
+  font: 12px Consolas, monospace;
+  outline: none;
+}
+.find-btn {
+  background: #1c2230;
+  border: none;
+  color: #c5c8c6;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.find-btn:hover {
+  background: #2d3650;
+}
