@@ -32,6 +32,7 @@ export class Pane implements PaneLike {
   private disposed = false;
   private lastRows = -1;
   private lastCols = -1;
+  private webgl?: WebglAddon;
 
   /** Called when the underlying process exits. */
   onExit?: (pane: PaneLike) => void;
@@ -93,8 +94,12 @@ export class Pane implements PaneLike {
   private enableWebgl(): void {
     try {
       const addon = new WebglAddon();
-      addon.onContextLoss(() => addon.dispose());
+      addon.onContextLoss(() => {
+        addon.dispose();
+        this.webgl = undefined;
+      });
       this.term.loadAddon(addon);
+      this.webgl = addon;
     } catch (e) {
       console.warn("WebGL terminal renderer unavailable, using DOM:", e);
     }
@@ -177,6 +182,8 @@ export class Pane implements PaneLike {
     if (this.disposed) return;
     this.disposed = true;
     this.resizeObserver?.disconnect();
+    this.webgl?.dispose(); // release the GPU context before the terminal
+    this.webgl = undefined;
     for (const un of this.unlisteners) un();
     this.unlisteners = [];
     if (this.ptyId >= 0) {
