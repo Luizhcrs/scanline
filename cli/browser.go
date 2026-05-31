@@ -4,19 +4,21 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 )
 
-// runBrowser drives the scriptable browser API:
+// runBrowser drives the scriptable browser API. The verb's positional args are
+// passed through as an array; the frontend interprets them per verb.
 //
 //	scanline browser open <url>
-//	scanline browser snapshot|url
-//	scanline browser eval <js>
-//	scanline browser click <ref|css>
-//	scanline browser fill|type <ref|css> <text...>
-//	scanline browser text [css] | exists <css> | wait <css>
-//	scanline browser navigate <url> | back | forward | reload | zoom <factor>
+//	scanline browser snapshot | url | text [css] | html [css]
+//	scanline browser eval <js> | exists <css> | wait <css> | count <css>
+//	scanline browser click <ref|css> | fill|type <ref|css> <text...>
+//	scanline browser find <text...> | attr <ref> <name> | value <ref>
+//	scanline browser visible <ref> | checked <ref> | check|uncheck <ref>
+//	scanline browser select <ref> <value> | scroll [ref] | press <key>
+//	scanline browser zoom <f> | viewport <w> <h> | cookies [clear]
+//	scanline browser storage [get [k] | set <k> <v> | clear] | devtools
+//	scanline browser navigate <url> | back | forward | reload
 //	scanline browser screenshot [--out file.png]
 //	(all accept --surface N to pick a browser pane)
 func runBrowser(args []string) {
@@ -41,9 +43,8 @@ func runBrowser(args []string) {
 	verb := rest[0]
 	rest = rest[1:]
 
-	// pull out --out (screenshot target) from the positionals
 	out := ""
-	var pos []string
+	pos := []string{}
 	for i := 0; i < len(rest); i++ {
 		if rest[i] == "--out" && i+1 < len(rest) {
 			out = rest[i+1]
@@ -53,32 +54,9 @@ func runBrowser(args []string) {
 		pos = append(pos, rest[i])
 	}
 
-	m := map[string]any{"verb": verb}
+	m := map[string]any{"verb": verb, "args": pos}
 	if surface != nil {
 		m["surface"] = surface
-	}
-	switch verb {
-	case "eval", "exists", "wait", "text", "url", "snapshot":
-		m["text"] = strings.Join(pos, " ")
-	case "click":
-		if len(pos) > 0 {
-			m["ref"] = pos[0]
-		}
-	case "fill", "type":
-		if len(pos) > 0 {
-			m["ref"] = pos[0]
-			m["text"] = strings.Join(pos[1:], " ")
-		}
-	case "navigate":
-		if len(pos) > 0 {
-			m["url"] = pos[0]
-		}
-	case "zoom":
-		if len(pos) > 0 {
-			if f, err := strconv.ParseFloat(pos[0], 64); err == nil {
-				m["delta"] = f
-			}
-		}
 	}
 
 	if verb == "screenshot" {

@@ -307,6 +307,31 @@ fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Re
     Ok(())
 }
 
+/// Open the WebView2 devtools window for a browser pane.
+#[cfg(windows)]
+#[tauri::command]
+fn browser_devtools(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
+    let wv = browsers
+        .views
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| format!("no browser pane {id}"))?;
+    wv.with_webview(|platform| unsafe {
+        if let Ok(core) = platform.controller().CoreWebView2() {
+            let _ = core.OpenDevToolsWindow();
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn browser_devtools(_browsers: State<BrowserManager>, _id: u32) -> Result<(), String> {
+    Err("devtools only on Windows".into())
+}
+
 // ---- Spike 1: WebView2 DevTools Protocol bridge ----
 //
 // GO/NO-GO for the scriptable browser. Scanline's browser_back/etc only do
@@ -656,6 +681,7 @@ pub fn run() {
             browser_back,
             browser_forward,
             browser_close,
+            browser_devtools,
             browser_cdp,
             cdp_selftest,
             control_reply

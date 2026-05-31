@@ -22,6 +22,7 @@ interface ControlCommand {
   delta?: number;
   verb?: string;
   ref?: string;
+  args?: string[];
 }
 
 interface ControlResult {
@@ -310,7 +311,7 @@ function main() {
       case "browser": {
         const sid = browserSurface(cmd.surface);
         if (sid == null) return { ok: false, error: "no browser surface" };
-        return await browserDispatch(sid, cmd.verb ?? "", cmd);
+        return await browserDispatch(sid, cmd.verb ?? "", cmd.args ?? []);
       }
       default:
         return { ok: false, error: `unknown method ${cmd.method}` };
