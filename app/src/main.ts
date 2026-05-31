@@ -136,6 +136,12 @@ function main() {
       else layout.focusedPane.nextSurface?.();
       return true;
     }
+    // Jump to tab: Ctrl+1..8 ; Ctrl+9 = last
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+      const n = parseInt(e.key, 10);
+      layout.focusedPane.selectSurface?.(n === 9 ? 999 : n - 1);
+      return true;
+    }
     // Notifications panel: Alt+Shift+N ; jump latest unread: Alt+Shift+U
     if (e.altKey && e.shiftKey && key === "n") {
       notifs.togglePanel();
@@ -253,6 +259,9 @@ function main() {
       case "surface.close":
         layout.focusedPane.closeActiveSurface?.();
         return { ok: true };
+      case "surface.select":
+        layout.focusedPane.selectSurface?.(typeof cmd.delta === "number" ? cmd.delta : 0);
+        return { ok: true };
       case "pane.focus":
         if (cmd.dir === "left" || cmd.dir === "right" || cmd.dir === "up" || cmd.dir === "down") {
           layout.focusDir(cmd.dir);
@@ -325,6 +334,7 @@ function main() {
               "surface.next",
               "surface.prev",
               "surface.close",
+              "surface.select",
               "surface.send_text",
               "surface.send_key",
               "surface.read_text",

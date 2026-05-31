@@ -117,7 +117,7 @@ func usage() {
   scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
   scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
-  scanline surface [new|next|prev|close]             per-pane terminal tabs
+  scanline surface [new|next|prev|close|select <n>]  per-pane terminal tabs
   scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
   scanline notif [clear]                             list (or clear) notifications
   scanline ping                                      health check
@@ -225,7 +225,13 @@ func main() {
 		if len(args) >= 2 {
 			sub = args[1]
 		}
-		send("surface."+sub, nil)
+		m := map[string]any{}
+		if sub == "select" && len(args) >= 3 {
+			if n, err := strconv.Atoi(args[2]); err == nil {
+				m["delta"] = n
+			}
+		}
+		send("surface."+sub, m)
 	case "equalize":
 		send("pane.equalize", nil)
 	case "zoom":

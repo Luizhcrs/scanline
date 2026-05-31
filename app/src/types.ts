@@ -51,6 +51,8 @@ export interface PaneLike {
   /** Activate the next / previous tab. */
   nextSurface?(): void;
   prevSurface?(): void;
+  /** Activate a tab by 0-based index. */
+  selectSurface?(index: number): void;
   /** Close the active tab (closes the whole leaf if it was the last). */
   closeActiveSurface?(): void;
   /** Show/hide the surface when its tab (de)activates. Browser panes hide their

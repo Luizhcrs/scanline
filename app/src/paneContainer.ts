@@ -146,6 +146,22 @@ export class PaneContainer implements PaneLike {
   prevSurface(): void {
     this.select((this.active - 1 + this.surfaces.length) % this.surfaces.length);
   }
+  /** Jump to surface by 0-based index (Ctrl+1-8); clamps to last. */
+  selectSurface(index: number): void {
+    this.select(Math.min(index, this.surfaces.length - 1));
+  }
+
+  /** Move a tab from one index to another (drag reorder), keeping the active
+   *  surface active. */
+  reorder(from: number, to: number): void {
+    if (from === to || from < 0 || from >= this.surfaces.length) return;
+    to = Math.max(0, Math.min(to, this.surfaces.length - 1));
+    const activeSurf = this.activeSurface;
+    const [s] = this.surfaces.splice(from, 1);
+    this.surfaces.splice(to, 0, s);
+    this.active = this.surfaces.indexOf(activeSurf);
+    this.renderStrip();
+  }
 
   /** Close the focused surface; if it was the last, the whole pane closes. */
   closeActiveSurface(): void {
@@ -192,6 +208,15 @@ export class PaneContainer implements PaneLike {
       label.className = "surface-tab-label";
       label.textContent = `${s.kind === "browser" ? "◉ " : ""}${s.title || s.kind}`;
       tab.onclick = () => this.select(i);
+      // Drag to reorder tabs.
+      tab.draggable = true;
+      tab.ondragstart = (e) => e.dataTransfer?.setData("text/plain", String(i));
+      tab.ondragover = (e) => e.preventDefault();
+      tab.ondrop = (e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer?.getData("text/plain"));
+        if (!Number.isNaN(from)) this.reorder(from, i);
+      };
       tab.append(label);
       if (this.surfaces.length > 1) {
         const x = document.createElement("button");
