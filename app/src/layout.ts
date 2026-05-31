@@ -29,6 +29,9 @@ export class Layout {
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   private paneFactory: (() => PaneLike) | null = null;
   private mounted = new WeakSet<PaneLike>();
+  private notifyHandler: ((pane: PaneLike, title: string, body: string) => void) | null = null;
+  /** Called whenever focus moves to a pane (used to clear its notification ring). */
+  onFocusChange: ((pane: PaneLike) => void) | null = null;
 
   constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
@@ -42,6 +45,14 @@ export class Layout {
   setKeyHandler(fn: (e: KeyboardEvent) => boolean): void {
     this.keyHandler = fn;
     for (const p of this.collectPanes(this.root)) p.keyHandler = fn;
+  }
+
+  /** Route pane notification sequences (OSC 9/777/bell) to a handler. */
+  setNotifyHandler(fn: (pane: PaneLike, title: string, body: string) => void): void {
+    this.notifyHandler = fn;
+    for (const p of this.collectPanes(this.root)) {
+      p.onNotify = (pane, t, b) => this.notifyHandler?.(pane, t, b);
+    }
   }
 
   /** Provide a factory used to create a terminal pane (e.g. for split buttons). */
@@ -91,6 +102,7 @@ export class Layout {
       this.setFocus(p);
       this.splitWithNew();
     };
+    pane.onNotify = (p, t, b) => this.notifyHandler?.(p, t, b);
     pane.keyHandler = this.keyHandler;
   }
 
@@ -134,6 +146,7 @@ export class Layout {
     if (this.focused && this.focused !== pane) this.focused.blur();
     this.focused = pane;
     pane.focus();
+    this.onFocusChange?.(pane);
   }
 
   /** Move focus to the nearest pane in a direction (geometric). */

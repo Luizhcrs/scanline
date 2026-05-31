@@ -103,6 +103,18 @@ func runTmuxCompat(args []string) {
 				fmt.Println(string(out))
 			}
 		}
+	case "capture-pane", "capturep":
+		m := map[string]any{}
+		if s := envSurface(); s != nil {
+			m["surface"] = s
+		}
+		if resp, err := rpc("surface.read_text", m); err == nil {
+			if r, ok := resp["result"].(map[string]any); ok {
+				if t, ok := r["text"].(string); ok {
+					fmt.Print(t)
+				}
+			}
+		}
 	case "has-session", "has":
 		// the session always "exists" (the running window) — exit 0.
 	case "-V", "-v":

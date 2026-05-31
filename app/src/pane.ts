@@ -3,7 +3,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { type PaneLike, nextPaneId } from "./types";
+
+const DEFAULT_FONT_SIZE = 14;
 
 /** Frontend-allocated pty ids. Allocated before spawn so per-pty event
  *  listeners can be registered first (see Pane.mount). */
@@ -32,6 +35,11 @@ export class Pane implements PaneLike {
   private disposed = false;
   private lastRows = -1;
   private lastCols = -1;
+  private serialize?: SerializeAddon;
+
+  /** Fired on OSC 9 / OSC 777 notify sequences or the bell — wired by Layout to
+   *  the notification store. */
+  onNotify?: (pane: PaneLike, title: string, body: string) => void;
 
   /** Called when the underlying process exits. */
   onExit?: (pane: PaneLike) => void;
@@ -84,8 +92,52 @@ export class Pane implements PaneLike {
     if (this.mounted) return;
     this.mounted = true;
     this.term.open(this.el);
+    this.installAddons();
     this.safeFit();
     void this.spawn(shell);
+  }
+
+  /** Addons + notification escape-sequence handlers. After term.open. */
+  private installAddons(): void {
+    try {
+      this.serialize = new SerializeAddon();
+      this.term.loadAddon(this.serialize);
+    } catch (e) {
+      console.warn("serialize addon unavailable:", e);
+    }
+
+    // OSC 9 ; <message>  (ConEmu/Windows-Terminal growl-style notify). Numeric
+    // first field (9;4;… progress) is not a notification — skip those.
+    this.term.parser.registerOscHandler(9, (data) => {
+      if (!/^\d+;/.test(data)) this.onNotify?.(this, "", data);
+      return true;
+    });
+    // OSC 777 ; notify ; <title> ; <body>  (urxvt/iTerm-style).
+    this.term.parser.registerOscHandler(777, (data) => {
+      const p = data.split(";");
+      if (p[0] === "notify") this.onNotify?.(this, p[1] ?? "", p.slice(2).join(";"));
+      return true;
+    });
+    this.term.onBell(() => this.onNotify?.(this, "", ""));
+  }
+
+  /** Serialize the terminal buffer + scrollback (surface.read_text / capture-pane). */
+  readText(): string {
+    return this.serialize?.serialize() ?? "";
+  }
+
+  /** Clear scrollback + viewport (pane.clear). */
+  clear(): void {
+    this.term.clear();
+  }
+
+  /** delta of 0 resets to default; otherwise add to the current size. */
+  adjustFontSize(delta: number): void {
+    const cur = this.term.options.fontSize ?? DEFAULT_FONT_SIZE;
+    this.term.options.fontSize =
+      delta === 0 ? DEFAULT_FONT_SIZE : Math.max(6, Math.min(40, cur + delta));
+    this.safeFit();
+    this.refit();
   }
 
   private async spawn(shell?: string): Promise<void> {

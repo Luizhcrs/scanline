@@ -108,6 +108,7 @@ func usage() {
   scanline web <url>                                 open a browser pane
   scanline focus <left|right|up|down>                move focus
   scanline list                                      list panes (id, kind, focused, rect)
+  scanline read [--surface N]                        read a pane's buffer (scrollback)
   scanline send [--surface N] <text...>              send literal text to a pane
   scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
   scanline notify [--title T] <body...>              post a notification
@@ -157,6 +158,26 @@ func main() {
 		send("pane.focus", map[string]any{"dir": args[1]})
 	case "list":
 		send("pane.list", nil)
+	case "read":
+		surface, _ := callerSurface(args[1:])
+		m := map[string]any{}
+		if surface != nil {
+			m["surface"] = surface
+		}
+		resp, err := rpc("surface.read_text", m)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "scanline:", err)
+			os.Exit(1)
+		}
+		if ok, _ := resp["ok"].(bool); !ok {
+			fmt.Fprintf(os.Stderr, "scanline: %v\n", resp["error"])
+			os.Exit(1)
+		}
+		if r, ok := resp["result"].(map[string]any); ok {
+			if t, ok := r["text"].(string); ok {
+				fmt.Print(t)
+			}
+		}
 	case "send":
 		surface, rest := callerSurface(args[1:])
 		m := map[string]any{"text": strings.Join(rest, " ")}
@@ -176,13 +197,18 @@ func main() {
 		}
 		send("surface.send_key", m)
 	case "notify":
-		title := ""
 		rest := args[1:]
+		title := ""
 		if len(rest) >= 2 && rest[0] == "--title" {
 			title = rest[1]
 			rest = rest[2:]
 		}
-		send("notify", map[string]any{"title": title, "body": strings.Join(rest, " ")})
+		surface, body := callerSurface(rest)
+		m := map[string]any{"title": title, "body": strings.Join(body, " ")}
+		if surface != nil {
+			m["surface"] = surface
+		}
+		send("notify", m)
 	case "close":
 		send("pane.close", nil)
 	case "ping":

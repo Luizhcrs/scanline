@@ -25,6 +25,8 @@ export interface PaneLike {
   onCloseRequest?: (pane: PaneLike) => void;
   /** Fired when the pane's split button is clicked. */
   onSplitRequest?: (pane: PaneLike) => void;
+  /** Fired on a notification escape sequence / bell (terminal panes). */
+  onNotify?: (pane: PaneLike, title: string, body: string) => void;
   /**
    * Called once by the Layout after the pane's element is attached to the DOM.
    * Heavy init that needs a measurable element (xterm.open, pty spawn) happens

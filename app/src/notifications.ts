@@ -1,0 +1,112 @@
+/**
+ * Notification store: the "an agent needs you" signal. A notification rings its
+ * pane (blue ring) and lands in a panel. Rings clear when the pane is focused.
+ * Producers: OSC 9 / OSC 777 / bell (from terminal panes) and the `notify` CLI.
+ */
+export interface Notif {
+  id: number;
+  leafId: number;
+  title: string;
+  body: string;
+  read: boolean;
+  ts: number;
+}
+
+export class NotificationStore {
+  private items: Notif[] = [];
+  private nextId = 1;
+  private panel: HTMLElement;
+  private listEl: HTMLElement;
+
+  constructor(
+    private getPaneEl: (leafId: number) => HTMLElement | null,
+    private focusPane: (leafId: number) => void,
+  ) {
+    this.panel = document.createElement("div");
+    this.panel.className = "notif-panel";
+    this.panel.style.display = "none";
+
+    const header = document.createElement("div");
+    header.className = "notif-panel-header";
+    const title = document.createElement("span");
+    title.textContent = "Notifications";
+    const clear = document.createElement("button");
+    clear.className = "notif-clear";
+    clear.textContent = "Clear all";
+    clear.onclick = () => this.clearAll();
+    header.append(title, clear);
+
+    this.listEl = document.createElement("div");
+    this.listEl.className = "notif-list";
+    this.panel.append(header, this.listEl);
+    document.body.appendChild(this.panel);
+  }
+
+  /** Record a notification and ring its pane. */
+  add(leafId: number, title: string, body: string): void {
+    this.items.unshift({
+      id: this.nextId++,
+      leafId,
+      title,
+      body,
+      read: false,
+      ts: Date.now(),
+    });
+    this.getPaneEl(leafId)?.classList.add("notif-ring");
+    this.render();
+  }
+
+  /** Pane focused → clear its ring and mark its notifications read. */
+  clearForPane(leafId: number): void {
+    this.getPaneEl(leafId)?.classList.remove("notif-ring");
+    let changed = false;
+    for (const n of this.items) {
+      if (n.leafId === leafId && !n.read) {
+        n.read = true;
+        changed = true;
+      }
+    }
+    if (changed) this.render();
+  }
+
+  clearAll(): void {
+    for (const n of this.items) this.getPaneEl(n.leafId)?.classList.remove("notif-ring");
+    this.items = [];
+    this.render();
+  }
+
+  togglePanel(): void {
+    const showing = this.panel.style.display !== "none";
+    this.panel.style.display = showing ? "none" : "flex";
+    if (!showing) this.render();
+  }
+
+  /** Jump to the most recent unread notification's pane (Alt+Shift+U). */
+  jumpLatestUnread(): void {
+    const n = this.items.find((x) => !x.read);
+    if (n) this.focusPane(n.leafId); // focus clears the ring via onFocusChange
+  }
+
+  private render(): void {
+    if (this.items.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "notif-empty";
+      empty.textContent = "No notifications";
+      this.listEl.replaceChildren(empty);
+      return;
+    }
+    this.listEl.replaceChildren(
+      ...this.items.map((n) => {
+        const row = document.createElement("div");
+        row.className = "notif-row" + (n.read ? " read" : "");
+        const label = n.title || `pane ${n.leafId}`;
+        row.textContent = n.body ? `${label} — ${n.body}` : label;
+        row.onclick = () => {
+          this.focusPane(n.leafId);
+          this.togglePanel();
+        };
+        return row;
+      }),
+    );
+  }
+}

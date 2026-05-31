@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Pane } from "./pane";
 import { BrowserPane } from "./browser";
 import { Layout } from "./layout";
+import { NotificationStore } from "./notifications";
 import type { PaneLike } from "./types";
 
 /** A command from the named-pipe control server (agent shim / CLI / scripts). */
@@ -60,6 +61,20 @@ function main() {
   const layout = new Layout(workspace, first);
   layout.setPaneFactory(() => new Pane());
 
+  // Notifications: ring a pane on OSC 9/777/bell or the notify verb; clear on focus.
+  const notifs = new NotificationStore(
+    (id) => layout.paneById(id)?.el ?? null,
+    (id) => {
+      const p = layout.paneById(id);
+      if (p) layout.setFocus(p);
+    },
+  );
+  layout.setNotifyHandler((pane, title, body) => notifs.add(pane.paneId, title, body));
+  layout.onFocusChange = (pane) => notifs.clearForPane(pane.paneId);
+
+  const focusedTerminal = (): Pane | null =>
+    layout.focusedPane.kind === "terminal" ? (layout.focusedPane as Pane) : null;
+
   // Keep native browser webviews aligned when the window resizes.
   window.addEventListener("resize", () => layout.refitAll());
 
@@ -90,6 +105,33 @@ function main() {
     // Close focused: Ctrl+Shift+W
     if (e.ctrlKey && e.shiftKey && key === "w") {
       layout.closeFocused();
+      return true;
+    }
+    // Notifications panel: Alt+Shift+N ; jump latest unread: Alt+Shift+U
+    if (e.altKey && e.shiftKey && key === "n") {
+      notifs.togglePanel();
+      return true;
+    }
+    if (e.altKey && e.shiftKey && key === "u") {
+      notifs.jumpLatestUnread();
+      return true;
+    }
+    // Clear scrollback: Ctrl+Shift+K
+    if (e.ctrlKey && e.shiftKey && key === "k") {
+      focusedTerminal()?.clear();
+      return true;
+    }
+    // Font size: Ctrl+= / Ctrl+- / Ctrl+0
+    if (e.ctrlKey && !e.altKey && (key === "=" || key === "+")) {
+      focusedTerminal()?.adjustFontSize(1);
+      return true;
+    }
+    if (e.ctrlKey && !e.altKey && key === "-") {
+      focusedTerminal()?.adjustFontSize(-1);
+      return true;
+    }
+    if (e.ctrlKey && !e.altKey && key === "0") {
+      focusedTerminal()?.adjustFontSize(0);
       return true;
     }
     // Focus navigation: Alt+Arrow (no shift)
@@ -160,6 +202,17 @@ function main() {
         (p as Pane).sendText(bytes);
         return { ok: true };
       }
+      case "surface.read_text": {
+        const p = targetPane(cmd.surface);
+        if (!p) return { ok: false, error: "no target surface" };
+        if (p.kind !== "terminal") return { ok: false, error: "surface is not a terminal" };
+        return { ok: true, result: { text: (p as Pane).readText() } };
+      }
+      case "pane.clear": {
+        const p = targetPane(cmd.surface);
+        if (p && p.kind === "terminal") (p as Pane).clear();
+        return { ok: true };
+      }
       case "system.ping":
         return { ok: true, result: { pong: true } };
       case "system.identify":
@@ -177,6 +230,8 @@ function main() {
               "surface.list",
               "surface.send_text",
               "surface.send_key",
+              "surface.read_text",
+              "pane.clear",
               "browser.open",
               "notify",
               "system.ping",
@@ -185,10 +240,12 @@ function main() {
             ],
           },
         };
-      case "notify":
-        // TODO (M3): real notification UI. For now, log.
-        console.log("[notify]", cmd.title ?? "", cmd.body ?? cmd.text ?? "");
+      case "notify": {
+        const leaf =
+          typeof cmd.surface === "number" ? cmd.surface : layout.focusedPane.paneId;
+        notifs.add(leaf, cmd.title ?? "", cmd.body ?? cmd.text ?? "");
         return { ok: true };
+      }
       default:
         return { ok: false, error: `unknown method ${cmd.method}` };
     }
