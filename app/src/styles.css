@@ -50,14 +50,34 @@ body,
 
 .ws-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
   padding: 6px 8px;
   border-radius: 6px;
   color: #8a8f99;
   font: 12px/1.2 Consolas, monospace;
   cursor: pointer;
   user-select: none;
+}
+.ws-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ws-meta {
+  font-size: 10px;
+  color: #5a6172;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-resizer {
+  flex: 0 0 4px;
+  cursor: col-resize;
+  background: transparent;
+}
+.sidebar-resizer:hover {
+  background: #2d3650;
 }
 .ws-row:hover {
   background: #11151f;

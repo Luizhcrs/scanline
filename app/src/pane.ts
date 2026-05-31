@@ -42,9 +42,18 @@ export class Pane implements PaneLike {
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
 
   private _title = "";
+  private _cwd = "";
   /** Terminal title from OSC 0/2, else the command, else "terminal". */
   get title(): string {
     return this._title || (this.command ? this.command.split(/\s+/)[0] : "terminal");
+  }
+  /** Working directory from OSC 7 (sidebar git/ports metadata). */
+  get cwd(): string {
+    return this._cwd;
+  }
+  /** The backend pty id (for pane_ports). */
+  getPtyId(): number {
+    return this.ptyId;
   }
 
   /** Called when the underlying process exits. */
@@ -116,6 +125,12 @@ export class Pane implements PaneLike {
     // OSC 0/2 set the window/icon title (used for tab/sidebar labels later).
     this.term.parser.registerOscHandler(0, (d) => ((this._title = d), true));
     this.term.parser.registerOscHandler(2, (d) => ((this._title = d), true));
+    // OSC 7 reports the working directory (file://host/path) — sidebar metadata.
+    this.term.parser.registerOscHandler(7, (d) => {
+      const m = d.match(/^file:\/\/[^/]*(\/.*)$/);
+      if (m) this._cwd = decodeURIComponent(m[1]).replace(/^\/([A-Za-z]:)/, "$1");
+      return true;
+    });
 
     // OSC 9 ; <message>  (ConEmu/Windows-Terminal growl-style notify). Numeric
     // first field (9;4;… progress) is not a notification — skip those.

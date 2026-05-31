@@ -23,6 +23,8 @@ struct Pty {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
     child: Box<dyn Child + Send + Sync>,
+    /// OS pid of the shell, root for the pane's listening-ports process tree.
+    pid: u32,
 }
 
 #[derive(Default)]
@@ -63,6 +65,16 @@ fn pty_spawn(
         cmd.arg("-NoLogo");
         cmd.arg("-Command");
         cmd.arg(line);
+    } else if program.to_lowercase().contains("powershell") || program.to_lowercase().contains("pwsh") {
+        // Plain shell: install a prompt that emits OSC 7 (current working dir) so
+        // the app can track per-pane cwd for the sidebar (git branch, ports, …).
+        cmd.arg("-NoExit");
+        cmd.arg("-Command");
+        cmd.arg(
+            "function global:prompt { $p=(Get-Location).Path; \
+             [Console]::Write([char]27+']7;file://'+[Environment]::MachineName+'/'+($p -replace '\\\\','/')+[char]7); \
+             'PS '+$p+'> ' }",
+        );
     }
     if let Ok(home) = std::env::var("USERPROFILE") {
         cmd.cwd(home);
@@ -74,6 +86,7 @@ fn pty_spawn(
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let pid = child.process_id().unwrap_or(0);
     // Close our handle to the slave; the child owns it now.
     drop(pair.slave);
 
@@ -86,6 +99,7 @@ fn pty_spawn(
             writer,
             master: pair.master,
             child,
+            pid,
         },
     );
 
@@ -148,6 +162,132 @@ fn pty_close(state: State<PtyManager>, id: u32) -> Result<(), String> {
         let _ = p.child.kill();
     }
     Ok(())
+}
+
+// ---- Sidebar metadata: git, ports ----
+
+fn run_capture(program: &str, args: &[&str], cwd: Option<&str>) -> Option<String> {
+    let mut c = std::process::Command::new(program);
+    c.args(args);
+    if let Some(d) = cwd {
+        c.current_dir(d);
+    }
+    let out = c.output().ok()?;
+    if out.status.success() {
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// git branch + dirty + linked PR (best effort) for a working directory.
+#[tauri::command]
+async fn repo_info(cwd: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = run_capture("git", &["-C", &cwd, "rev-parse", "--abbrev-ref", "HEAD"], None);
+        let dirty = run_capture("git", &["-C", &cwd, "status", "--porcelain"], None)
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        // gh is best-effort: present + authenticated + a PR for the branch.
+        let pr = run_capture(
+            "gh",
+            &["pr", "view", "--json", "number,state", "-q", "\"#\\(.number) \\(.state)\""],
+            Some(&cwd),
+        )
+        .filter(|s| !s.is_empty());
+        serde_json::json!({
+            "branch": branch,
+            "dirty": dirty,
+            "pr": pr,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Listening TCP ports owned by a pane's process tree (the shell + descendants).
+#[tauri::command]
+async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, String> {
+    let root = match state.ptys.lock().unwrap().get(&id) {
+        Some(p) => p.pid,
+        None => return Ok(vec![]),
+    };
+    if root == 0 {
+        return Ok(vec![]);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let pids = descendant_pids(root);
+        let mut ports: Vec<u16> = Vec::new();
+        // netstat -ano: "  TCP  0.0.0.0:PORT  ...  LISTENING  PID"
+        if let Some(out) = run_capture("netstat", &["-ano", "-p", "TCP"], None) {
+            for line in out.lines() {
+                if !line.contains("LISTENING") {
+                    continue;
+                }
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() < 5 {
+                    continue;
+                }
+                let pid: u32 = cols[cols.len() - 1].parse().unwrap_or(0);
+                if !pids.contains(&pid) {
+                    continue;
+                }
+                if let Some(port) = cols[1].rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
+                    if !ports.contains(&port) {
+                        ports.push(port);
+                    }
+                }
+            }
+        }
+        ports.sort_unstable();
+        ports
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The pid set rooted at `root` (process + all descendants) via a Toolhelp snapshot.
+#[cfg(windows)]
+fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    };
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    unsafe {
+        if let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            let mut entry = PROCESSENTRY32 {
+                dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+                ..Default::default()
+            };
+            if Process32First(snap, &mut entry).is_ok() {
+                loop {
+                    children
+                        .entry(entry.th32ParentProcessID)
+                        .or_default()
+                        .push(entry.th32ProcessID);
+                    if Process32Next(snap, &mut entry).is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = windows::Win32::Foundation::CloseHandle(snap);
+        }
+    }
+    let mut set = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(p) = stack.pop() {
+        if set.insert(p) {
+            if let Some(kids) = children.get(&p) {
+                stack.extend(kids);
+            }
+        }
+    }
+    set
+}
+
+#[cfg(not(windows))]
+fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
+    std::collections::HashSet::from([root])
 }
 
 // ---- Browser panes (native child webviews) ----
@@ -684,7 +824,9 @@ pub fn run() {
             browser_devtools,
             browser_cdp,
             cdp_selftest,
-            control_reply
+            control_reply,
+            repo_info,
+            pane_ports
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

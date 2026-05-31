@@ -6,9 +6,30 @@
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scanline</title>
+    <!-- Paint dark immediately so the WebView2 cold start shows no white flash. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0d1017;
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #5ff967;
+        font: 600 22px Consolas, monospace;
+        letter-spacing: 2px;
+        opacity: 0.6;
+      }
+    </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
+    <div id="splash">scanline</div>
     <div id="app">
       <div id="sidebar"></div>
       <div id="content"></div>

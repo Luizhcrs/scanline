@@ -84,6 +84,10 @@ class App {
   private nextWsId = 1;
   private sidebarVisible = true;
   private notifs: NotificationStore;
+  private meta = new Map<
+    number,
+    { cwd: string; branch?: string | null; dirty?: boolean; pr?: string | null; ports?: number[] }
+  >();
 
   constructor(
     private sidebar: HTMLElement,
@@ -95,9 +99,12 @@ class App {
     );
     this.notifs.onChange = () => this.renderSidebar();
 
+    this.installResizer();
     this.newWorkspace();
 
     window.addEventListener("resize", () => this.activeLayout.refitAll());
+    // Poll per-workspace sidebar metadata (cwd / git branch / ports).
+    setInterval(() => void this.refreshMeta(), 4000);
 
     void listen<ControlCommand>("control://request", (e) => {
       const cmd = e.payload;
@@ -205,17 +212,20 @@ class App {
     const rows = this.workspaces.map((w, i) => {
       const row = document.createElement("div");
       row.className = "ws-row" + (i === this.active ? " active" : "");
+      row.onclick = () => this.selectWorkspace(i);
+
+      const top = document.createElement("div");
+      top.className = "ws-top";
       const label = document.createElement("span");
       label.className = "ws-label";
       label.textContent = w.title;
-      row.onclick = () => this.selectWorkspace(i);
-      row.append(label);
+      top.append(label);
       const unread = this.notifs.unreadForWs(w.id);
       if (unread > 0) {
         const badge = document.createElement("span");
         badge.className = "ws-badge";
         badge.textContent = String(unread);
-        row.append(badge);
+        top.append(badge);
       }
       if (this.workspaces.length > 1) {
         const x = document.createElement("button");
@@ -225,7 +235,22 @@ class App {
           e.stopPropagation();
           this.closeWorkspace(w.id);
         };
-        row.append(x);
+        top.append(x);
+      }
+      row.append(top);
+
+      // Metadata line: cwd · branch* · :ports · PR
+      const m = this.meta.get(w.id);
+      if (m && (m.cwd || m.branch)) {
+        const meta = document.createElement("div");
+        meta.className = "ws-meta";
+        const parts: string[] = [];
+        if (m.cwd) parts.push(m.cwd.replace(/\/+$/, "").split(/[\\/]/).pop() || m.cwd);
+        if (m.branch) parts.push(`⎇ ${m.branch}${m.dirty ? "*" : ""}`);
+        if (m.ports && m.ports.length) parts.push(":" + m.ports.slice(0, 3).join(" :"));
+        if (m.pr) parts.push(`PR ${m.pr}`);
+        meta.textContent = parts.join("  ");
+        row.append(meta);
       }
       return row;
     });
@@ -234,6 +259,60 @@ class App {
     add.textContent = "+ Workspace";
     add.onclick = () => this.newWorkspace();
     this.sidebar.replaceChildren(...rows, add);
+  }
+
+  /** Poll each workspace's focused-surface cwd -> git branch/dirty/PR + ports. */
+  private async refreshMeta(): Promise<void> {
+    let changed = false;
+    for (const w of this.workspaces) {
+      const fs = w.layout.focusedSurface;
+      const cwd = fs.cwd ?? "";
+      if (!cwd) continue;
+      try {
+        const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
+          "repo_info",
+          { cwd },
+        );
+        const ports =
+          fs.kind === "terminal"
+            ? await invoke<number[]>("pane_ports", { id: (fs as Pane).getPtyId() })
+            : [];
+        const next = { cwd, branch: info.branch, dirty: info.dirty, pr: info.pr, ports };
+        if (JSON.stringify(next) !== JSON.stringify(this.meta.get(w.id))) {
+          this.meta.set(w.id, next);
+          changed = true;
+        }
+      } catch {
+        /* git/gh not available or no repo */
+      }
+    }
+    if (changed) this.renderSidebar();
+  }
+
+  /** Draggable divider to resize the sidebar; width persisted in localStorage. */
+  private installResizer(): void {
+    const saved = localStorage.getItem("scanline.sidebarWidth");
+    if (saved) this.sidebar.style.flexBasis = saved + "px";
+    const resizer = document.createElement("div");
+    resizer.className = "sidebar-resizer";
+    this.sidebar.after(resizer);
+    resizer.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const move = (ev: MouseEvent) => {
+        const w = Math.max(120, Math.min(420, ev.clientX));
+        this.sidebar.style.flexBasis = w + "px";
+        this.activeLayout.refitAll();
+      };
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+        document.body.style.userSelect = "";
+        localStorage.setItem("scanline.sidebarWidth", String(parseInt(this.sidebar.style.flexBasis || "180", 10)));
+      };
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    });
   }
 
   // ---- shortcuts ----
@@ -555,6 +634,7 @@ function main() {
   const content = document.getElementById("content");
   if (!sidebar || !content) return;
   new App(sidebar, content);
+  document.getElementById("splash")?.remove();
 }
 
 window.addEventListener("DOMContentLoaded", main);

@@ -15,6 +15,8 @@ export interface PaneLike {
   readonly kind: "terminal" | "browser";
   /** Display label (terminal title from OSC 0/2, or browser host). */
   readonly title?: string;
+  /** Working directory (terminal OSC 7), for sidebar git/ports metadata. */
+  readonly cwd?: string;
   /** Root DOM element (class "pane"). */
   readonly el: HTMLElement;
   /** App shortcut handler; return true to consume the key. */
