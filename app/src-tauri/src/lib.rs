@@ -42,6 +42,7 @@ fn pty_spawn(
     cols: u16,
     shell: Option<String>,
     command: Option<String>,
+    surface_id: Option<u32>,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -65,6 +66,11 @@ fn pty_spawn(
     }
     if let Ok(home) = std::env::var("USERPROFILE") {
         cmd.cwd(home);
+    }
+    // Caller-pane context: a process in this pane (the CLI / tmux shim) reads
+    // this as its default --surface target.
+    if let Some(sid) = surface_id {
+        cmd.env("SCANLINE_SURFACE_ID", sid.to_string());
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -463,10 +469,25 @@ async fn cdp_selftest(app: AppHandle) -> Result<String, String> {
 // ---- Control server (named pipe) ----
 //
 // External processes (the agent tmux-shim, a CLI, scripts) drive the running
-// grid by writing JSON lines to \\.\pipe\scanline. Each line is forwarded to
-// the frontend as a `control://command` event, which the Shell dispatches to
-// the layout (split / new / close / focus pane, notify). This is the mechanism
-// that lets an agent's `tmux split-window` spawn a real pane in the window.
+// grid by writing JSON lines to \\.\pipe\scanline.
+//
+// V2 protocol: a request {id, method, params} is forwarded to the frontend as a
+// `control://request` event; the frontend computes a result and calls back via
+// the `control_reply` command, which routes the response to the waiting pipe
+// client. Legacy fire-and-forget requests (no id) are emitted as
+// `control://command` and acked immediately.
+
+/// Pending V2 control requests awaiting a frontend reply, keyed by request id.
+#[derive(Default)]
+struct ControlPending(Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>>);
+
+/// The frontend delivers a V2 response here; route it to the waiting pipe client.
+#[tauri::command]
+fn control_reply(pending: State<ControlPending>, id: String, response: serde_json::Value) {
+    if let Some(tx) = pending.0.lock().unwrap().remove(&id) {
+        let _ = tx.send(response);
+    }
+}
 
 #[cfg(windows)]
 const CONTROL_PIPE: &str = r"\\.\pipe\scanline";
@@ -524,7 +545,33 @@ async fn handle_control_client(
                             };
                             eprintln!("debug.cdp id={id} => {res:?}");
                             format!("{}\n", serde_json::json!({ "debug": format!("{res:?}") }))
+                        } else if let Some(req_id) =
+                            v.get("id").and_then(|x| x.as_str()).map(str::to_string)
+                        {
+                            // V2 request/response: forward to the frontend and wait
+                            // for its reply (control_reply) keyed by this id.
+                            let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
+                            app.state::<ControlPending>()
+                                .0
+                                .lock()
+                                .unwrap()
+                                .insert(req_id.clone(), tx);
+                            let _ = app.emit("control://request", v.clone());
+                            let resp = match tokio::time::timeout(
+                                std::time::Duration::from_secs(20),
+                                rx,
+                            )
+                            .await
+                            {
+                                Ok(Ok(val)) => val,
+                                _ => {
+                                    app.state::<ControlPending>().0.lock().unwrap().remove(&req_id);
+                                    serde_json::json!({"id": req_id, "ok": false, "error": "no reply / timeout"})
+                                }
+                            };
+                            format!("{resp}\n")
                         } else {
+                            // Legacy fire-and-forget (no id).
                             let _ = app.emit("control://command", v);
                             "{\"ok\":true}\n".to_string()
                         }
@@ -591,6 +638,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
         .manage(BrowserManager::default())
+        .manage(ControlPending::default())
         .setup(|app| {
             start_control_server(app.handle().clone());
             Ok(())
@@ -608,7 +656,8 @@ pub fn run() {
             browser_forward,
             browser_close,
             browser_cdp,
-            cdp_selftest
+            cdp_selftest,
+            control_reply
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

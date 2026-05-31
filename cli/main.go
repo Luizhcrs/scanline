@@ -1,11 +1,11 @@
 // scanline CLI + tmux-compat shim.
 //
 // Talks to the running Scanline app over the named pipe \\.\pipe\scanline using
-// the same one-line-JSON control protocol the app's Rust control server speaks
-// (method + optional dir/url/text/command, ack {"ok":true}).
+// its V2 control protocol: a request is one JSON line {id, method, ...fields};
+// the reply is one JSON line {id, ok, result?, error?}.
 //
 // Two roles:
-//   1. Direct CLI:   scanline split|run|web|notify|focus|close
+//   1. Direct CLI:   scanline split|run|web|notify|focus|close|list|send|key
 //   2. Agent glue:   scanline <agent> [args]  launches an agent with a fake-tmux
 //      environment + a `tmux` shim on PATH, so the agent's `tmux split-window`
 //      calls land as real panes in the grid (via `scanline __tmux-compat`).
@@ -19,39 +19,85 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 const pipePath = `\\.\pipe\scanline`
 
-// sendPipe writes one JSON command line to the control pipe and returns the ack.
-func sendPipe(msg map[string]any) (string, error) {
+var reqCounter uint64
+
+func nextID() string {
+	return fmt.Sprintf("%d-%d", os.Getpid(), atomic.AddUint64(&reqCounter, 1))
+}
+
+// rpc sends one V2 request and returns the parsed reply.
+func rpc(method string, fields map[string]any) (map[string]any, error) {
 	f, err := os.OpenFile(pipePath, os.O_RDWR, 0)
 	if err != nil {
-		return "", fmt.Errorf("Scanline not running? cannot open %s: %w", pipePath, err)
+		return nil, fmt.Errorf("Scanline not running? cannot open %s: %w", pipePath, err)
 	}
 	defer f.Close()
 
-	b, err := json.Marshal(msg)
+	req := map[string]any{"id": nextID(), "method": method}
+	for k, v := range fields {
+		req[k] = v
+	}
+	b, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if _, err := f.Write(append(b, '\n')); err != nil {
-		return "", err
+		return nil, err
 	}
 	line, _ := bufio.NewReader(f).ReadString('\n')
-	return strings.TrimSpace(line), nil
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &resp); err != nil {
+		return nil, fmt.Errorf("bad reply %q: %w", strings.TrimSpace(line), err)
+	}
+	return resp, nil
 }
 
-func send(msg map[string]any) {
-	ack, err := sendPipe(msg)
+// send runs an rpc, prints any result, and exits non-zero on error.
+func send(method string, fields map[string]any) {
+	resp, err := rpc(method, fields)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "scanline:", err)
 		os.Exit(1)
 	}
-	if ack != "" {
-		fmt.Println(ack)
+	if ok, _ := resp["ok"].(bool); !ok {
+		fmt.Fprintf(os.Stderr, "scanline: %v\n", resp["error"])
+		os.Exit(1)
 	}
+	if r, ok := resp["result"]; ok {
+		out, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(out))
+	}
+}
+
+// callerSurface resolves the default target: --surface flag wins, else the
+// SCANLINE_SURFACE_ID env injected into the caller's pane, else nil (focused).
+func callerSurface(args []string) (surface any, rest []string) {
+	rest = []string{}
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--surface" && i+1 < len(args) {
+			if n, err := strconv.Atoi(args[i+1]); err == nil {
+				surface = n
+			}
+			i++
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	if surface == nil {
+		if env := os.Getenv("SCANLINE_SURFACE_ID"); env != "" {
+			if n, err := strconv.Atoi(env); err == nil {
+				surface = n
+			}
+		}
+	}
+	return surface, rest
 }
 
 func usage() {
@@ -61,8 +107,12 @@ func usage() {
   scanline run -- <command...>                       split + run a command
   scanline web <url>                                 open a browser pane
   scanline focus <left|right|up|down>                move focus
-  scanline notify <text...>                          post a notification
+  scanline list                                      list panes (id, kind, focused, rect)
+  scanline send [--surface N] <text...>              send literal text to a pane
+  scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
+  scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
+  scanline ping                                      health check
   scanline <agent> [args...]                         launch an agent (fake-tmux)`)
 }
 
@@ -78,37 +128,65 @@ func main() {
 		usage()
 	case "split":
 		dir, cmd := parseSplit(args[1:])
-		m := map[string]any{"method": "pane.split"}
+		m := map[string]any{}
 		if dir != "" {
 			m["dir"] = dir
 		}
 		if cmd != "" {
 			m["command"] = cmd
 		}
-		send(m)
+		send("pane.split", m)
 	case "run":
 		cmd := strings.TrimSpace(joinAfterDashDash(args[1:]))
 		if cmd == "" {
 			fmt.Fprintln(os.Stderr, "scanline run: expected -- <command...>")
 			os.Exit(1)
 		}
-		send(map[string]any{"method": "pane.split", "command": cmd})
+		send("pane.split", map[string]any{"command": cmd})
 	case "web":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "scanline web: expected <url>")
 			os.Exit(1)
 		}
-		send(map[string]any{"method": "browser.open", "url": args[1]})
+		send("browser.open", map[string]any{"url": args[1]})
 	case "focus":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "scanline focus: expected <left|right|up|down>")
 			os.Exit(1)
 		}
-		send(map[string]any{"method": "pane.focus", "dir": args[1]})
+		send("pane.focus", map[string]any{"dir": args[1]})
+	case "list":
+		send("pane.list", nil)
+	case "send":
+		surface, rest := callerSurface(args[1:])
+		m := map[string]any{"text": strings.Join(rest, " ")}
+		if surface != nil {
+			m["surface"] = surface
+		}
+		send("surface.send_text", m)
+	case "key":
+		surface, rest := callerSurface(args[1:])
+		if len(rest) == 0 {
+			fmt.Fprintln(os.Stderr, "scanline key: expected <key>")
+			os.Exit(1)
+		}
+		m := map[string]any{"key": rest[0]}
+		if surface != nil {
+			m["surface"] = surface
+		}
+		send("surface.send_key", m)
 	case "notify":
-		send(map[string]any{"method": "notify", "text": strings.Join(args[1:], " ")})
+		title := ""
+		rest := args[1:]
+		if len(rest) >= 2 && rest[0] == "--title" {
+			title = rest[1]
+			rest = rest[2:]
+		}
+		send("notify", map[string]any{"title": title, "body": strings.Join(rest, " ")})
 	case "close":
-		send(map[string]any{"method": "pane.close"})
+		send("pane.close", nil)
+	case "ping":
+		send("system.ping", nil)
 	case "__tmux-compat":
 		runTmuxCompat(args[1:])
 	default:

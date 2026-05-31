@@ -11,6 +11,8 @@ export function nextPaneId(): number {
 export interface PaneLike {
   /** Stable unique id. */
   readonly paneId: number;
+  /** Discriminator for serialization / targeting (pane.list, send_text). */
+  readonly kind: "terminal" | "browser";
   /** Root DOM element (class "pane"). */
   readonly el: HTMLElement;
   /** App shortcut handler; return true to consume the key. */

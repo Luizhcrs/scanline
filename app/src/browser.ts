@@ -30,6 +30,7 @@ function toUrl(input: string): string {
  */
 export class BrowserPane implements PaneLike {
   readonly paneId = nextPaneId();
+  readonly kind = "browser" as const;
   readonly el: HTMLElement;
   private viewport: HTMLElement;
   private urlInput: HTMLInputElement;

@@ -59,6 +59,29 @@ export class Layout {
     return this.focused;
   }
 
+  /** Serialize the grid as a flat list of panes (for pane.list / surface.list). */
+  serialize(): Array<{
+    id: number;
+    kind: string;
+    focused: boolean;
+    rect: { x: number; y: number; w: number; h: number };
+  }> {
+    return this.collectPanes(this.root).map((p) => {
+      const r = p.el.getBoundingClientRect();
+      return {
+        id: p.paneId,
+        kind: p.kind,
+        focused: p === this.focused,
+        rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+      };
+    });
+  }
+
+  /** Find a pane by its stable id. */
+  paneById(id: number): PaneLike | null {
+    return this.collectPanes(this.root).find((p) => p.paneId === id) ?? null;
+  }
+
   /** Wire a freshly created pane into the layout's callbacks. */
   private adopt(pane: PaneLike): void {
     pane.onFocusRequest = (p) => this.setFocus(p);

@@ -21,6 +21,7 @@ const THEME = {
  */
 export class Pane implements PaneLike {
   readonly paneId = nextPaneId();
+  readonly kind = "terminal" as const;
   readonly el: HTMLElement;
   private term: Terminal;
   private fit: FitAddon;
@@ -108,6 +109,7 @@ export class Pane implements PaneLike {
       cols: this.term.cols,
       shell: shell ?? null,
       command: this.command ?? null,
+      surfaceId: this.paneId,
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
@@ -148,6 +150,13 @@ export class Pane implements PaneLike {
     } catch {
       /* element not measurable yet */
     }
+  }
+
+  /** Write literal bytes to this pane's pty (surface.send_text / send_key). */
+  sendText(text: string): void {
+    if (this.ptyId < 0) return;
+    const bytes = Array.from(text, (c) => c.charCodeAt(0) & 0xff);
+    invoke("pty_write", { id: this.ptyId, data: bytes });
   }
 
   focus(): void {
