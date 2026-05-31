@@ -35,6 +35,11 @@ export class CommandPalette {
   private filtered: PaletteItem[] = [];
   private sel = 0;
   private restore: HTMLElement | null = null;
+  private provider: ((q: string) => Promise<PaletteItem[]>) | null = null;
+  private debounce?: ReturnType<typeof setTimeout>;
+  private usage: Record<string, number> = JSON.parse(
+    localStorage.getItem("scanline.cmdUsage") || "{}",
+  );
 
   constructor() {
     this.overlay = document.createElement("div");
@@ -55,18 +60,48 @@ export class CommandPalette {
     this.overlay.append(box);
     document.body.appendChild(this.overlay);
 
-    this.input.addEventListener("input", () => this.render());
+    this.input.addEventListener("input", () => this.onInput());
     this.input.addEventListener("keydown", (e) => this.onKey(e));
   }
 
   open(items: PaletteItem[], placeholder = "Type a command…"): void {
     this.items = items;
+    this.provider = null;
     this.restore = document.activeElement as HTMLElement;
     this.input.value = "";
     this.input.placeholder = placeholder;
     this.overlay.style.display = "flex";
     this.render();
     this.input.focus();
+  }
+
+  /** Live backend-driven results: each keystroke queries `provider`. */
+  openAsync(
+    provider: (q: string) => Promise<PaletteItem[]>,
+    placeholder = "Search…",
+  ): void {
+    this.items = [];
+    this.provider = provider;
+    this.restore = document.activeElement as HTMLElement;
+    this.input.value = "";
+    this.input.placeholder = placeholder;
+    this.overlay.style.display = "flex";
+    this.filtered = [];
+    this.renderRows();
+    this.input.focus();
+  }
+
+  private onInput(): void {
+    if (this.provider) {
+      clearTimeout(this.debounce);
+      const q = this.input.value.trim();
+      this.debounce = setTimeout(async () => {
+        this.filtered = await this.provider!(q);
+        this.renderRows();
+      }, 180);
+    } else {
+      this.render();
+    }
   }
 
   close(): void {
@@ -80,11 +115,16 @@ export class CommandPalette {
 
   private render(): void {
     const q = this.input.value.trim();
+    const boost = (it: PaletteItem) => this.usage[it.id] ?? 0;
     this.filtered = this.items
       .map((it) => ({ it, score: fuzzyScore(q, it.label + " " + (it.hint ?? "")) }))
       .filter((x) => x.score !== null)
-      .sort((a, b) => (b.score as number) - (a.score as number))
+      .sort((a, b) => (b.score! + boost(b.it)) - (a.score! + boost(a.it)))
       .map((x) => x.it);
+    this.renderRows();
+  }
+
+  private renderRows(): void {
     this.sel = 0;
     this.listEl.replaceChildren(
       ...this.filtered.map((it, i) => {
@@ -118,6 +158,10 @@ export class CommandPalette {
 
   private runSel(): void {
     const it = this.filtered[this.sel];
+    if (it) {
+      this.usage[it.id] = (this.usage[it.id] ?? 0) + 1;
+      localStorage.setItem("scanline.cmdUsage", JSON.stringify(this.usage));
+    }
     this.close();
     it?.run();
   }

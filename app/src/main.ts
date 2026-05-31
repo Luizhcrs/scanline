@@ -389,6 +389,30 @@ class App {
     });
   }
 
+  private openFindInDir(): void {
+    const cwd = this.activeLayout.focusedSurface.cwd || "";
+    this.palette.openAsync(async (q) => {
+      if (!q) return [];
+      try {
+        const rows = await invoke<Array<{ file: string; line: number; text: string }>>("grep_dir", {
+          cwd,
+          query: q,
+        });
+        return rows.map((r) => ({
+          id: `${r.file}:${r.line}`,
+          label: `${r.file}:${r.line}`,
+          hint: r.text,
+          run: () => {
+            const t = this.activeLayout.focusedSurface;
+            if (t.kind === "terminal") (t as Pane).sendText(r.file);
+          },
+        }));
+      } catch {
+        return [];
+      }
+    }, `Find in ${cwd ? cwd.split(/[\\/]/).pop() : "dir"}…`);
+  }
+
   private runFind(s: PaneLike, q: string, dir: "next" | "prev"): void {
     if (!q) return;
     if (s.kind === "terminal") {
@@ -425,6 +449,10 @@ class App {
     }
     if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "f") {
       this.openFind();
+      return true;
+    }
+    if (e.ctrlKey && e.shiftKey && key === "f") {
+      this.openFindInDir();
       return true;
     }
     if (e.altKey && e.shiftKey && key === "d") {
@@ -668,6 +696,12 @@ class App {
         );
         return { ok: true };
       }
+      case "grep": {
+        const cwd = this.activeLayout.focusedSurface.cwd || "";
+        if (!cwd) return { ok: false, error: "no cwd (cd in the focused terminal first)" };
+        const rows = await invoke("grep_dir", { cwd, query: cmd.text ?? "" });
+        return { ok: true, result: rows };
+      }
       case "notif.list":
         return { ok: true, result: this.notifs.list() };
       case "notif.clear":
@@ -715,6 +749,9 @@ class App {
       case "ui.find":
         this.openFind();
         return { ok: true };
+      case "ui.findInDir":
+        this.openFindInDir();
+        return { ok: true };
       case "system.ping":
         return { ok: true, result: { pong: true } };
       case "system.identify":
@@ -735,10 +772,10 @@ const CAPABILITIES = [
   "pane.equalize", "pane.zoom", "pane.resize", "pane.clear",
   "surface.new", "surface.next", "surface.prev", "surface.close", "surface.select",
   "surface.send_text", "surface.send_key", "surface.read_text",
-  "browser.open", "browser", "notify", "notif.list", "notif.clear",
+  "browser.open", "browser", "notify", "notif.list", "notif.clear", "grep",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",
   "workspace.close", "workspace.rename",
-  "ui.palette", "ui.switcher", "ui.find",
+  "ui.palette", "ui.switcher", "ui.find", "ui.findInDir",
   "system.ping", "system.identify", "system.capabilities",
 ];
 

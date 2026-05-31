@@ -246,6 +246,43 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
     .map_err(|e| e.to_string())
 }
 
+/// Find-in-directory: ripgrep if present, else findstr. Returns {file,line,text}.
+#[tauri::command]
+async fn grep_dir(cwd: String, query: String) -> Result<Vec<serde_json::Value>, String> {
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let raw = run_capture(
+            "rg",
+            &["--line-number", "--no-heading", "--color", "never", "-S", "-m", "5", &query, "."],
+            Some(&cwd),
+        )
+        .or_else(|| run_capture("findstr", &["/s", "/n", "/i", "/c:", &query, "*"], Some(&cwd)))
+        .unwrap_or_default();
+
+        let mut out = Vec::new();
+        for line in raw.lines().take(200) {
+            // file:line:text  (paths are cwd-relative, so the first two colons split it)
+            let mut it = line.splitn(3, ':');
+            let file = it.next().unwrap_or("");
+            let lno = it.next().unwrap_or("");
+            let text = it.next().unwrap_or("");
+            if file.is_empty() || lno.is_empty() {
+                continue;
+            }
+            out.push(serde_json::json!({
+                "file": file,
+                "line": lno.parse::<u32>().unwrap_or(0),
+                "text": text.trim().chars().take(160).collect::<String>(),
+            }));
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// The pid set rooted at `root` (process + all descendants) via a Toolhelp snapshot.
 #[cfg(windows)]
 fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
@@ -826,7 +863,8 @@ pub fn run() {
             cdp_selftest,
             control_reply,
             repo_info,
-            pane_ports
+            pane_ports,
+            grep_dir
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
