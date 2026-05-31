@@ -4,6 +4,7 @@ import { Pane } from "./pane";
 import { BrowserPane } from "./browser";
 import { Layout } from "./layout";
 import { NotificationStore } from "./notifications";
+import { browserDispatch } from "./browserApi";
 import type { PaneLike } from "./types";
 
 /** A command from the named-pipe control server (agent shim / CLI / scripts). */
@@ -19,6 +20,8 @@ interface ControlCommand {
   surface?: number;
   key?: string;
   delta?: number;
+  verb?: string;
+  ref?: string;
 }
 
 interface ControlResult {
@@ -183,7 +186,18 @@ function main() {
   const targetPane = (surface?: number): PaneLike | null =>
     typeof surface === "number" ? layout.paneById(surface) : layout.focusedPane;
 
-  const dispatch = (cmd: ControlCommand): ControlResult => {
+  // Resolve a browser pane to drive: explicit surface, else focused, else first.
+  const browserSurface = (surface?: number): number | null => {
+    if (typeof surface === "number") {
+      const p = layout.paneById(surface);
+      if (p && p.kind === "browser") return p.paneId;
+    }
+    if (layout.focusedPane.kind === "browser") return layout.focusedPane.paneId;
+    const b = layout.serialize().find((x) => x.kind === "browser");
+    return b ? b.id : null;
+  };
+
+  const dispatch = async (cmd: ControlCommand): Promise<ControlResult> => {
     if (!cmd || typeof cmd.method !== "string") {
       return { ok: false, error: "missing method" };
     }
@@ -279,6 +293,7 @@ function main() {
               "notif.list",
               "notif.clear",
               "browser.open",
+              "browser",
               "notify",
               "system.ping",
               "system.identify",
@@ -292,6 +307,11 @@ function main() {
         notifs.add(leaf, cmd.title ?? "", cmd.body ?? cmd.text ?? "");
         return { ok: true };
       }
+      case "browser": {
+        const sid = browserSurface(cmd.surface);
+        if (sid == null) return { ok: false, error: "no browser surface" };
+        return await browserDispatch(sid, cmd.verb ?? "", cmd);
+      }
       default:
         return { ok: false, error: `unknown method ${cmd.method}` };
     }
@@ -300,12 +320,18 @@ function main() {
   // V2 request/response: compute a result and reply keyed by the request id.
   void listen<ControlCommand>("control://request", (e) => {
     const cmd = e.payload;
-    const r = dispatch(cmd);
-    void invoke("control_reply", { id: cmd.id, response: { id: cmd.id, ...r } });
+    dispatch(cmd)
+      .then((r) => invoke("control_reply", { id: cmd.id, response: { id: cmd.id, ...r } }))
+      .catch((err) =>
+        invoke("control_reply", {
+          id: cmd.id,
+          response: { id: cmd.id, ok: false, error: String(err) },
+        }),
+      );
   });
   // Legacy fire-and-forget (no id).
   void listen<ControlCommand>("control://command", (e) => {
-    dispatch(e.payload);
+    void dispatch(e.payload);
   });
 }
 

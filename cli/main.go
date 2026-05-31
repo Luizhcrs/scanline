@@ -106,6 +106,10 @@ func usage() {
   scanline split [--dir row|col] [-- <command...>]   split the focused pane
   scanline run -- <command...>                       split + run a command
   scanline web <url>                                 open a browser pane
+  scanline browser <verb> [args] [--surface N]       drive a browser pane
+       open <url> | snapshot | url | eval <js> | click <ref> | fill <ref> <text>
+       type <ref> <text> | text [css] | exists <css> | wait <css> | zoom <f>
+       navigate <url> | back | forward | reload | screenshot [--out f.png]
   scanline focus <left|right|up|down>                move focus
   scanline list                                      list panes (id, kind, focused, rect)
   scanline read [--surface N]                        read a pane's buffer (scrollback)
@@ -152,6 +156,8 @@ func main() {
 			os.Exit(1)
 		}
 		send("browser.open", map[string]any{"url": args[1]})
+	case "browser":
+		runBrowser(args[1:])
 	case "focus":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "scanline focus: expected <left|right|up|down>")
