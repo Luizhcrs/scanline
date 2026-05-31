@@ -1,64 +1,65 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Pane } from "./pane";
+import { Layout } from "./layout";
 
-interface PtyData {
-  id: number;
-  bytes: number[];
+async function newPane(): Promise<Pane> {
+  const p = new Pane();
+  await p.start();
+  return p;
 }
 
 async function main() {
-  const el = document.getElementById("terminal");
-  if (!el) return;
+  const workspace = document.getElementById("workspace");
+  if (!workspace) return;
 
-  const term = new Terminal({
-    fontFamily: "Cascadia Code, Consolas, monospace",
-    fontSize: 14,
-    cursorBlink: true,
-    theme: {
-      background: "#0d1017",
-      foreground: "#c5c8c6",
-      cursor: "#5ff967",
-    },
+  const first = await newPane();
+  const layout = new Layout(workspace, first);
+
+  // Open Claude in the focused pane (just types the command for now; the
+  // scanline CLI integration lands in phase 3).
+  async function splitWith(): Promise<void> {
+    const p = await newPane();
+    layout.splitFocused(p);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    // Split: Alt+Shift+D (auto direction)
+    if (e.altKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      e.preventDefault();
+      void splitWith();
+      return;
+    }
+    // Split explicit: Alt+Shift+ArrowRight/Down
+    if (e.altKey && e.shiftKey && e.key === "ArrowRight") {
+      e.preventDefault();
+      void (async () => layout.splitFocused(await newPane(), "row"))();
+      return;
+    }
+    if (e.altKey && e.shiftKey && e.key === "ArrowDown") {
+      e.preventDefault();
+      void (async () => layout.splitFocused(await newPane(), "col"))();
+      return;
+    }
+    // Close focused: Ctrl+Shift+W
+    if (e.ctrlKey && e.shiftKey && (e.key === "W" || e.key === "w")) {
+      e.preventDefault();
+      layout.closeFocused();
+      return;
+    }
+    // Focus navigation: Alt+Arrow
+    if (e.altKey && !e.shiftKey) {
+      const map: Record<string, "left" | "right" | "up" | "down"> = {
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        ArrowUp: "up",
+        ArrowDown: "down",
+      };
+      const dir = map[e.key];
+      if (dir) {
+        e.preventDefault();
+        layout.focusDir(dir);
+      }
+    }
   });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  term.loadAddon(new WebLinksAddon());
-  term.open(el);
-  fit.fit();
-
-  // Spawn the shell sized to the current viewport.
-  const ptyId = await invoke<number>("pty_spawn", {
-    rows: term.rows,
-    cols: term.cols,
-  });
-
-  // ConPTY output -> terminal.
-  await listen<PtyData>("pty-data", (e) => {
-    if (e.payload.id !== ptyId) return;
-    term.write(new Uint8Array(e.payload.bytes));
-  });
-
-  await listen<number>("pty-exit", (e) => {
-    if (e.payload === ptyId) term.write("\r\n[process exited]\r\n");
-  });
-
-  // Keystrokes -> ConPTY.
-  term.onData((data) => {
-    invoke("pty_write", { id: ptyId, data });
-  });
-
-  // Keep ConPTY size in sync with the viewport.
-  const doFit = () => {
-    fit.fit();
-    invoke("pty_resize", { id: ptyId, rows: term.rows, cols: term.cols });
-  };
-  window.addEventListener("resize", doFit);
-  doFit();
-
-  term.focus();
 }
 
 window.addEventListener("DOMContentLoaded", main);

@@ -1,0 +1,246 @@
+import { Pane } from "./pane";
+
+type Dir = "row" | "col";
+
+interface LeafNode {
+  kind: "leaf";
+  pane: Pane;
+}
+interface SplitNode {
+  kind: "split";
+  dir: Dir;
+  a: Node;
+  b: Node;
+  ratio: number; // fraction of space given to `a`
+}
+type Node = LeafNode | SplitNode;
+
+const MIN_RATIO = 0.1;
+const MAX_RATIO = 0.9;
+
+/**
+ * Tiling layout: a binary tree of splits whose leaves are terminal panes.
+ * Rendering reuses each Pane's DOM element, so terminals survive re-renders
+ * (split / close / resize) without losing state.
+ */
+export class Layout {
+  private root: Node;
+  private focused: Pane;
+
+  constructor(private container: HTMLElement, first: Pane) {
+    this.root = { kind: "leaf", pane: first };
+    this.focused = first;
+    first.onFocusRequest = (p) => this.setFocus(p);
+    first.onExit = (p) => this.closePane(p);
+    this.render();
+    this.setFocus(first);
+  }
+
+  get focusedPane(): Pane {
+    return this.focused;
+  }
+
+  /** Wire a freshly created pane into the layout's callbacks. */
+  private adopt(pane: Pane): void {
+    pane.onFocusRequest = (p) => this.setFocus(p);
+    pane.onExit = (p) => this.closePane(p);
+  }
+
+  /**
+   * Split the focused pane, placing `newPane` beside it. Direction defaults to
+   * the longer edge of the focused pane (keeps the grid balanced).
+   */
+  splitFocused(newPane: Pane, dir?: Dir): void {
+    this.adopt(newPane);
+    const chosen = dir ?? this.autoDir(this.focused);
+    const leaf = this.findLeaf(this.root, this.focused);
+    if (!leaf) return;
+    const replacement: SplitNode = {
+      kind: "split",
+      dir: chosen,
+      a: { kind: "leaf", pane: this.focused },
+      b: { kind: "leaf", pane: newPane },
+      ratio: 0.5,
+    };
+    this.root = this.replace(this.root, this.focused, replacement);
+    this.render();
+    this.setFocus(newPane);
+  }
+
+  /** Close a pane, collapse its parent split (sibling takes the space). */
+  async closePane(pane: Pane): Promise<void> {
+    const sibling = this.siblingOf(this.root, pane);
+    if (sibling === undefined) {
+      // Last pane — closing it isn't allowed (keep at least one).
+      return;
+    }
+    this.root = this.removeLeaf(this.root, pane)!;
+    await pane.dispose();
+    this.render();
+    // Focus the first leaf of the surviving sibling subtree.
+    const next = this.firstLeaf(sibling);
+    if (next) this.setFocus(next);
+  }
+
+  closeFocused(): void {
+    void this.closePane(this.focused);
+  }
+
+  setFocus(pane: Pane): void {
+    if (this.focused && this.focused !== pane) this.focused.blur();
+    this.focused = pane;
+    pane.focus();
+  }
+
+  /** Move focus to the nearest pane in a direction (geometric). */
+  focusDir(direction: "left" | "right" | "up" | "down"): void {
+    const panes = this.collectPanes(this.root);
+    const cur = this.focused.el.getBoundingClientRect();
+    const cx = cur.left + cur.width / 2;
+    const cy = cur.top + cur.height / 2;
+
+    let best: Pane | null = null;
+    let bestScore = Infinity;
+    for (const p of panes) {
+      if (p === this.focused) continue;
+      const r = p.el.getBoundingClientRect();
+      const px = r.left + r.width / 2;
+      const py = r.top + r.height / 2;
+      const dx = px - cx;
+      const dy = py - cy;
+      const ok =
+        (direction === "left" && dx < -1) ||
+        (direction === "right" && dx > 1) ||
+        (direction === "up" && dy < -1) ||
+        (direction === "down" && dy > 1);
+      if (!ok) continue;
+      // Distance weighted to favor the intended axis.
+      const score =
+        direction === "left" || direction === "right"
+          ? Math.abs(dx) + Math.abs(dy) * 2
+          : Math.abs(dy) + Math.abs(dx) * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    if (best) this.setFocus(best);
+  }
+
+  // ---- rendering ----
+
+  private render(): void {
+    this.container.replaceChildren(this.renderNode(this.root));
+  }
+
+  private renderNode(node: Node): HTMLElement {
+    if (node.kind === "leaf") {
+      // Reuse the pane element (preserves the terminal).
+      node.pane.el.style.flex = "1 1 auto";
+      return node.pane.el;
+    }
+    const split = document.createElement("div");
+    split.className = `split ${node.dir}`;
+
+    const wrapA = document.createElement("div");
+    wrapA.className = "split-child";
+    wrapA.style.flexBasis = `${node.ratio * 100}%`;
+    wrapA.appendChild(this.renderNode(node.a));
+
+    const gutter = document.createElement("div");
+    gutter.className = `gutter ${node.dir}`;
+
+    const wrapB = document.createElement("div");
+    wrapB.className = "split-child";
+    wrapB.style.flexBasis = `${(1 - node.ratio) * 100}%`;
+    wrapB.appendChild(this.renderNode(node.b));
+
+    split.append(wrapA, gutter, wrapB);
+    this.wireGutter(gutter, split, node, wrapA, wrapB);
+    return split;
+  }
+
+  private wireGutter(
+    gutter: HTMLElement,
+    split: HTMLElement,
+    node: SplitNode,
+    wrapA: HTMLElement,
+    wrapB: HTMLElement,
+  ): void {
+    const onDown = (e: MouseEvent) => {
+      e.preventDefault();
+      const move = (ev: MouseEvent) => {
+        const rect = split.getBoundingClientRect();
+        let r =
+          node.dir === "row"
+            ? (ev.clientX - rect.left) / rect.width
+            : (ev.clientY - rect.top) / rect.height;
+        r = Math.max(MIN_RATIO, Math.min(MAX_RATIO, r));
+        node.ratio = r;
+        wrapA.style.flexBasis = `${r * 100}%`;
+        wrapB.style.flexBasis = `${(1 - r) * 100}%`;
+      };
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+        document.body.style.userSelect = "";
+      };
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    };
+    gutter.addEventListener("mousedown", onDown);
+  }
+
+  // ---- tree helpers ----
+
+  private autoDir(pane: Pane): Dir {
+    const r = pane.el.getBoundingClientRect();
+    return r.width >= r.height ? "row" : "col";
+  }
+
+  private findLeaf(node: Node, pane: Pane): LeafNode | null {
+    if (node.kind === "leaf") return node.pane === pane ? node : null;
+    return this.findLeaf(node.a, pane) ?? this.findLeaf(node.b, pane);
+  }
+
+  private replace(node: Node, target: Pane, replacement: Node): Node {
+    if (node.kind === "leaf") return node.pane === target ? replacement : node;
+    return {
+      ...node,
+      a: this.replace(node.a, target, replacement),
+      b: this.replace(node.b, target, replacement),
+    };
+  }
+
+  /** Remove a leaf; the split collapses to its sibling. Returns new tree or null. */
+  private removeLeaf(node: Node, pane: Pane): Node | null {
+    if (node.kind === "leaf") return node.pane === pane ? null : node;
+    const a = this.removeLeaf(node.a, pane);
+    const b = this.removeLeaf(node.b, pane);
+    if (a === null) return b;
+    if (b === null) return a;
+    return { ...node, a, b };
+  }
+
+  private siblingOf(node: Node, pane: Pane): Node | undefined {
+    if (node.kind === "leaf") return undefined;
+    if (node.a.kind === "leaf" && node.a.pane === pane) return node.b;
+    if (node.b.kind === "leaf" && node.b.pane === pane) return node.a;
+    return this.siblingOf(node.a, pane) ?? this.siblingOf(node.b, pane);
+  }
+
+  private firstLeaf(node: Node): Pane | null {
+    if (node.kind === "leaf") return node.pane;
+    return this.firstLeaf(node.a) ?? this.firstLeaf(node.b);
+  }
+
+  private collectPanes(node: Node, out: Pane[] = []): Pane[] {
+    if (node.kind === "leaf") out.push(node.pane);
+    else {
+      this.collectPanes(node.a, out);
+      this.collectPanes(node.b, out);
+    }
+    return out;
+  }
+}
