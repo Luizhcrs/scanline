@@ -481,6 +481,18 @@ const DEFAULT_CONFIG: &str = r##"{
 }
 "##;
 
+/// Append a line to %APPDATA%\scanline\activity.log (temporary hang forensics:
+/// on a freeze the OS kills the app, so the log tail shows the last activity).
+#[tauri::command]
+fn log_activity(line: String) {
+    if let Some(p) = config_path().map(|c| c.with_file_name("activity.log")) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
 /// Load scanline.json, or null if it does not exist yet.
 #[tauri::command]
 fn load_config() -> Result<Option<String>, String> {
@@ -1107,8 +1119,49 @@ fn apply_dark_titlebar(window: &tauri::WebviewWindow) {
                 &color as *const _ as *const core::ffi::c_void,
                 std::mem::size_of::<u32>() as u32,
             );
+            // Constrain maximize to the monitor WORK AREA so the window doesn't
+            // overhang under the taskbar (which left the bottom pane content —
+            // and a black strip — hidden behind it).
+            let _ = windows::Win32::UI::Shell::SetWindowSubclass(hwnd, Some(minmax_subclass), 1, 0);
         }
     }
+}
+
+/// Clamp WM_GETMINMAXINFO to the work area so a maximized window fills exactly
+/// the usable desktop (no invisible-border overhang under the taskbar).
+#[cfg(windows)]
+unsafe extern "system" fn minmax_subclass(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::{MINMAXINFO, WM_GETMINMAXINFO};
+    if msg == WM_GETMINMAXINFO {
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi).as_bool() {
+            let wa = mi.rcWork;
+            let full = mi.rcMonitor;
+            let mmi = &mut *(lparam.0 as *mut MINMAXINFO);
+            mmi.ptMaxPosition.x = wa.left - full.left;
+            mmi.ptMaxPosition.y = wa.top - full.top;
+            mmi.ptMaxSize.x = wa.right - wa.left;
+            mmi.ptMaxSize.y = wa.bottom - wa.top;
+            mmi.ptMaxTrackSize.x = wa.right - wa.left;
+            mmi.ptMaxTrackSize.y = wa.bottom - wa.top;
+            return LRESULT(0);
+        }
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
 }
 
 pub fn run() {
@@ -1138,6 +1191,10 @@ pub fn run() {
         .manage(ControlPending::default())
         .setup(|app| {
             start_control_server(app.handle().clone());
+            // Fresh activity log each launch (hang forensics).
+            if let Some(p) = config_path().map(|c| c.with_file_name("activity.log")) {
+                let _ = std::fs::remove_file(&p);
+            }
             #[cfg(windows)]
             if let Some(win) = app.get_webview_window("main") {
                 apply_dark_titlebar(&win);
@@ -1167,7 +1224,8 @@ pub fn run() {
             load_session,
             load_config,
             edit_config,
-            save_config
+            save_config,
+            log_activity
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
