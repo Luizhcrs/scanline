@@ -73,7 +73,13 @@ fn pty_spawn(
         cmd.arg("-NoExit");
         cmd.arg("-Command");
         cmd.arg(
-            "function global:prompt { $p=(Get-Location).Path; \
+            // UTF-8 in + out so accented chars / emoji round-trip (xterm decodes
+            // output as UTF-8 and we send input as UTF-8). Then install a prompt
+            // that emits OSC 7 (cwd) for the sidebar git/ports metadata.
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; \
+             [Console]::InputEncoding=[System.Text.Encoding]::UTF8; \
+             $OutputEncoding=[System.Text.Encoding]::UTF8; \
+             function global:prompt { $p=(Get-Location).Path; \
              [Console]::Write([char]27+']7;file://'+[Environment]::MachineName+'/'+($p -replace '\\\\','/')+[char]7); \
              'PS '+$p+'> ' }",
         );

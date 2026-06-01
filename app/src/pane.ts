@@ -250,10 +250,10 @@ export class Pane implements PaneLike {
     // at once on session restore — the reply is dropped and the shell hangs
     // with no prompt. Registering onData first closes that race.
     this.term.onData((data) => {
-      // xterm hands input as a string of char codes 0–255 (one byte each).
-      // Send raw bytes so non-UTF-8 sequences survive.
-      const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
-      invoke("pty_write", { id, data: bytes });
+      // UTF-8 encode: typed accented chars / emoji are multi-byte, so a
+      // charCodeAt&0xff truncation would corrupt them. TextEncoder yields the
+      // correct UTF-8 byte sequence (control chars / ESC are ASCII, unaffected).
+      invoke("pty_write", { id, data: Array.from(new TextEncoder().encode(data)) });
     });
 
     // Disposed during the awaits above (e.g. session restore disposes the
@@ -309,8 +309,8 @@ export class Pane implements PaneLike {
   /** Write literal bytes to this pane's pty (surface.send_text / send_key). */
   sendText(text: string): void {
     if (this.ptyId < 0) return;
-    const bytes = Array.from(text, (c) => c.charCodeAt(0) & 0xff);
-    invoke("pty_write", { id: this.ptyId, data: bytes });
+    // UTF-8 (accents/emoji survive); ASCII control/ESC sequences pass through.
+    invoke("pty_write", { id: this.ptyId, data: Array.from(new TextEncoder().encode(text)) });
   }
 
   async copySelection(): Promise<void> {

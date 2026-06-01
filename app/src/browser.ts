@@ -103,9 +103,17 @@ export class BrowserPane implements PaneLike {
     this.el.addEventListener("mousedown", () => this.onFocusRequest?.(this));
   }
 
+  private resizeObserver?: ResizeObserver;
+
   /** Called once by the Layout after the element is in the DOM. The webview is
    *  created lazily in refit() as soon as the viewport has a real size. */
   mount(): void {
+    // Track the viewport's own size: the native webview is a separate window
+    // that must be repositioned on ANY size change (split drag, sidebar toggle,
+    // window resize, MAXIMIZE). Relying only on the window 'resize' event missed
+    // maximize and left the webview stranded off its cell.
+    this.resizeObserver = new ResizeObserver(() => this.refit());
+    this.resizeObserver.observe(this.viewport);
     requestAnimationFrame(() => this.refit());
   }
 
@@ -249,6 +257,7 @@ export class BrowserPane implements PaneLike {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.resizeObserver?.disconnect();
     if (this.urlPoll) clearInterval(this.urlPoll);
     if (this.created) {
       await invoke("browser_close", { id: this.paneId }).catch(() => {});
