@@ -29,3 +29,5 @@ Thumbs.db
 # Go CLI build artifacts (covered by cli/*.exe above; kept explicit)
 cli/scanline
 cli/scanline-cli.exe
+# Bundled-into-Tauri copy of the CLI (built by `npm run build:cli`)
+app/src-tauri/scanline.exe

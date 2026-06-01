@@ -26,11 +26,22 @@ func isScanlineHook(e any) bool {
 			continue
 		}
 		c, _ := hm["command"].(string)
-		if strings.Contains(c, "hooks claude ") && strings.Contains(strings.ToLower(c), "scanline") {
-			return true
+		// Match our own `<exe> hooks claude <Event>` signature by suffix — exe-name
+		// independent, so a renamed/moved binary is still recognized as ours.
+		c = strings.TrimSpace(c)
+		for _, ev := range hookEvents {
+			if strings.HasSuffix(c, "hooks claude "+ev) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// hookEvents is every Claude Code lifecycle event scanline has ever installed a
+// hook for (current + legacy), used to recognize and sweep our own entries.
+var hookEvents = []string{
+	"Notification", "Stop", "SubagentStop", "UserPromptSubmit", "PreToolUse", "PostToolUse",
 }
 
 // runHooks handles `scanline hooks ...`:

@@ -1093,25 +1093,52 @@ fn start_control_server(_app: AppHandle) {}
 /// Idempotent (the CLI dedups its hook entries). Silently no-ops if the bundled
 /// scanline CLI can't be located. Runs detached with no console window.
 #[cfg(windows)]
-fn setup_agent_hooks() {
+fn setup_agent_hooks(app: &tauri::AppHandle) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let Some(cli) = locate_scanline_cli() else {
+    let Some(cli) = locate_scanline_cli(app) else {
         return;
     };
-    let _ = std::process::Command::new(cli)
-        .args(["hooks", "setup"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+    // Run on a side thread (off the setup/main thread) and capture output: if the
+    // installer bails (e.g. an unparseable settings.json it refuses to clobber),
+    // record why in hooks.log instead of swallowing it on a detached process.
+    std::thread::spawn(move || {
+        let out = std::process::Command::new(&cli)
+            .args(["hooks", "setup"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::null())
+            .output();
+        if let Ok(o) = out {
+            if !o.status.success() {
+                if let Some(p) = config_path().map(|c| c.with_file_name("hooks.log")) {
+                    if let Some(dir) = p.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    use std::io::Write;
+                    if let Ok(mut f) =
+                        std::fs::OpenOptions::new().create(true).append(true).open(&p)
+                    {
+                        let _ = f.write_all(b"hooks setup failed:\n");
+                        let _ = f.write_all(&o.stderr);
+                        let _ = f.write_all(b"\n");
+                    }
+                }
+            }
+        }
+    });
 }
 
-/// Resolve the scanline CLI: a sibling of the app binary (shipped layout), else
-/// `<repo>/cli/scanline.exe` walking up the dev tree.
+/// Resolve the scanline CLI: the bundled resource (shipped install), else a
+/// sibling of the app binary, else `<repo>/cli/scanline.exe` up the dev tree.
 #[cfg(windows)]
-fn locate_scanline_cli() -> Option<std::path::PathBuf> {
+fn locate_scanline_cli(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    if let Ok(dir) = app.path().resource_dir() {
+        let c = dir.join("scanline.exe");
+        if c.exists() {
+            return Some(c);
+        }
+    }
     let exe = std::env::current_exe().ok()?;
     if let Some(dir) = exe.parent() {
         let sib = dir.join("scanline.exe");
@@ -1198,7 +1225,7 @@ pub fn run() {
                 if let Some(win) = app.get_webview_window("main") {
                     apply_dark_titlebar(&win);
                 }
-                setup_agent_hooks();
+                setup_agent_hooks(app.handle());
             }
             Ok(())
         })

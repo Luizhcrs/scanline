@@ -8,7 +8,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run build:cli",
+    "build:cli": "go -C ../cli build -o ../app/src-tauri/scanline.exe .",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit"
