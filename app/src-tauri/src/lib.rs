@@ -225,6 +225,14 @@ fn run_capture(program: &str, args: &[&str], cwd: Option<&str>) -> Option<String
     if let Some(d) = cwd {
         c.current_dir(d);
     }
+    // CREATE_NO_WINDOW (0x0800_0000): a GUI app spawning a console program
+    // (git, gh, netstat, findstr) flashes a cmd window otherwise. refreshMeta
+    // polls these on a timer, so without this the screen blinks console windows.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000);
+    }
     let out = c.output().ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
