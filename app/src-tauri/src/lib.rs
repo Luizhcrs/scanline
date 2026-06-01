@@ -373,8 +373,13 @@ const DEFAULT_CONFIG: &str = r##"{
   },
   "ui": {
     // Interface font (sidebar, tabs, menus). Not the terminal.
-    "fontFamily": "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
-  }
+    "fontFamily": "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif",
+    "minimal": false
+  },
+  // Rebind actions, e.g. "palette": "ctrl+k". Format: ctrl+alt+shift+key.
+  // Actions: palette, switcher, find, findInDir, newWorkspace, newTab,
+  //          settings, minimal, fullscreen.
+  "keybindings": {}
 }
 "##;
 
@@ -387,6 +392,18 @@ fn load_config() -> Result<Option<String>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Persist scanline.json (atomic temp+rename), creating the dir if needed.
+#[tauri::command]
+fn save_config(json: String) -> Result<(), String> {
+    let path = config_path().ok_or("no APPDATA")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 /// Open scanline.json in Notepad, writing a commented default first if missing.
@@ -999,7 +1016,8 @@ pub fn run() {
             save_session,
             load_session,
             load_config,
-            edit_config
+            edit_config,
+            save_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

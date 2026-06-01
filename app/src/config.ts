@@ -12,7 +12,9 @@ export interface ScanlineConfig {
     scrollback: number;
     theme: { background: string; foreground: string; cursor: string };
   };
-  ui: { fontFamily: string };
+  ui: { fontFamily: string; minimal: boolean };
+  /** Action -> chord overrides (e.g. {"palette":"ctrl+k"}). Empty = defaults. */
+  keybindings: Record<string, string>;
 }
 
 export const DEFAULTS: ScanlineConfig = {
@@ -24,7 +26,9 @@ export const DEFAULTS: ScanlineConfig = {
   },
   ui: {
     fontFamily: '"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif',
+    minimal: false,
   },
+  keybindings: {},
 };
 
 let current: ScanlineConfig = DEFAULTS;
@@ -53,6 +57,12 @@ function merge(base: any, over: any): any {
   return out;
 }
 
+/** Apply document-level config (UI font, minimal mode). */
+function apply(): void {
+  document.documentElement.style.setProperty("--ui-font", current.ui.fontFamily);
+  document.body.classList.toggle("minimal", !!current.ui.minimal);
+}
+
 /** (Re)load scanline.json from disk and apply the UI font. Returns the config. */
 export async function loadConfig(): Promise<ScanlineConfig> {
   try {
@@ -62,6 +72,13 @@ export async function loadConfig(): Promise<ScanlineConfig> {
     console.error("config load failed, using defaults:", e);
     current = DEFAULTS;
   }
-  document.documentElement.style.setProperty("--ui-font", current.ui.fontFamily);
+  apply();
   return current;
+}
+
+/** Persist a new config to disk (pretty JSON) and apply it in memory. */
+export async function saveConfig(next: ScanlineConfig): Promise<void> {
+  current = merge(DEFAULTS, next) as ScanlineConfig;
+  await invoke("save_config", { json: JSON.stringify(current, null, 2) });
+  apply();
 }

@@ -9,7 +9,8 @@ import { browserDispatch } from "./browserApi";
 import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
-import { loadConfig, config } from "./config";
+import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
+import { SettingsPanel } from "./settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
@@ -19,6 +20,19 @@ const newCommandLeaf = (command: string) =>
   new PaneContainer(new Pane(command), () => new Pane());
 const newBrowserLeaf = (url?: string) =>
   new PaneContainer(new BrowserPane(url), () => new Pane());
+
+/** Default chords for the rebindable actions (overridable via config). */
+const DEFAULT_BINDINGS: Record<string, string> = {
+  palette: "ctrl+shift+p",
+  switcher: "ctrl+p",
+  find: "ctrl+f",
+  findInDir: "ctrl+shift+f",
+  newWorkspace: "ctrl+n",
+  newTab: "ctrl+t",
+  settings: "ctrl+,",
+  minimal: "ctrl+shift+m",
+  fullscreen: "f11",
+};
 
 /** Recreate a single surface from its restore spec. */
 const paneFromSpec = (s: SurfaceSpec): PaneLike => {
@@ -120,6 +134,10 @@ class App {
   private findBar = new FindBar();
   private feed = new FeedPanel();
   private menu = new ContextMenu();
+  private settings = new SettingsPanel(
+    (cfg) => this.applyConfig(cfg),
+    () => void invoke("edit_config"),
+  );
 
   constructor(
     private sidebar: HTMLElement,
@@ -243,6 +261,19 @@ class App {
     const j = JSON.stringify(config());
     if (j === this.lastConfigJson) return;
     this.lastConfigJson = j;
+    this.reapplyConfig();
+  }
+
+  /** Persist a config (from the settings window) and apply it live. */
+  private async applyConfig(cfg: ScanlineConfig): Promise<void> {
+    await saveConfig(cfg);
+    this.lastConfigJson = JSON.stringify(config());
+    this.reapplyConfig();
+  }
+
+  /** Push the current config into every terminal + relayout (minimal mode
+   *  changes available space, so refit after the class toggles). */
+  private reapplyConfig(): void {
     for (const w of this.workspaces) {
       for (const c of w.layout.panes()) {
         for (const s of c.allSurfaces ?? [c]) {
@@ -250,6 +281,13 @@ class App {
         }
       }
     }
+    requestAnimationFrame(() => this.activeLayout.refitAll());
+  }
+
+  /** Toggle minimal mode (hide sidebar + tab bars) and persist it. */
+  private toggleMinimal(): void {
+    const c = config();
+    void this.applyConfig({ ...c, ui: { ...c.ui, minimal: !c.ui.minimal } });
   }
 
   // ---- context menu ----
@@ -572,6 +610,9 @@ class App {
       { id: "notif", label: "Notifications", hint: "Alt+Shift+N", run: () => this.notifs.togglePanel() },
       { id: "sidebar", label: "Toggle Sidebar", hint: "Ctrl+B", run: () => this.toggleSidebar() },
       { id: "find", label: "Find…", hint: "Ctrl+F", run: () => this.openFind() },
+      { id: "settings", label: "Settings…", hint: "Ctrl+,", run: () => this.settings.open() },
+      { id: "minimal", label: "Toggle Minimal Mode", hint: "Ctrl+Shift+M", run: () => this.toggleMinimal() },
+      { id: "fullscreen", label: "Toggle Fullscreen", hint: "F11", run: () => void this.toggleFullscreen() },
     ];
     this.palette.open(cmds, "Command…");
   }
@@ -661,6 +702,33 @@ class App {
   private onKey(e: KeyboardEvent): boolean {
     const key = e.key.toLowerCase();
     const layout = this.activeLayout;
+
+    // Rebindable actions: a chord -> action table merged with config overrides,
+    // checked before the fixed shortcuts below. Defaults mirror the built-in
+    // chords, so unconfigured behavior is unchanged but every action is now
+    // remappable via scanline.json "keybindings".
+    const chord = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", key]
+      .filter(Boolean)
+      .join("+");
+    const actions: Record<string, () => void> = {
+      palette: () => this.openCommands(),
+      switcher: () => this.openSwitcher(),
+      find: () => this.openFind(),
+      findInDir: () => this.openFindInDir(),
+      newWorkspace: () => this.newWorkspace(),
+      newTab: () => layout.focusedPane.newTerminalTab?.(),
+      settings: () => this.settings.open(),
+      minimal: () => this.toggleMinimal(),
+      fullscreen: () => void this.toggleFullscreen(),
+    };
+    const binds = { ...DEFAULT_BINDINGS, ...config().keybindings };
+    for (const name of Object.keys(actions)) {
+      if (binds[name]?.toLowerCase() === chord) {
+        actions[name]();
+        return true;
+      }
+    }
+
     const focusedTerminal = (): Pane | null => {
       const s = layout.focusedSurface;
       return s.kind === "terminal" ? (s as Pane) : null;
@@ -740,7 +808,11 @@ class App {
     }
     // Settings + window
     if (e.ctrlKey && !e.shiftKey && !e.altKey && key === ",") {
-      void invoke("edit_config");
+      this.settings.open();
+      return true;
+    }
+    if (e.ctrlKey && e.shiftKey && key === "m") {
+      this.toggleMinimal();
       return true;
     }
     if (key === "f11") {
