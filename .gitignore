@@ -9,6 +9,12 @@ app/src-tauri/gen/schemas/
 # Go (cli, added later)
 cli/*.exe
 
+# Agent / editor local config — never publish
+.claude/
+.cursor/
+.vscode/
+.idea/
+
 # OS / editor
 .DS_Store
 *.log
