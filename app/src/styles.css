@@ -14,6 +14,13 @@
   box-sizing: border-box;
 }
 
+/* Keyboard focus indicator for all interactive chrome (buttons, inputs, rows).
+   Mouse clicks don't trigger :focus-visible, so it only shows for keyboard nav. */
+:focus-visible {
+  outline: 2px solid var(--focus, #5aa0ff);
+  outline-offset: 1px;
+}
+
 html,
 body,
 #app {
@@ -198,7 +205,8 @@ body,
   overflow: hidden;
 }
 .pane-container.focused {
-  border-color: rgba(95, 249, 103, 0.35);
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 1px var(--focus);
 }
 .pane-container.notif-ring {
   border-color: #5aa0ff;

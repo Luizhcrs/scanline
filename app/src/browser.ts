@@ -218,7 +218,7 @@ export class BrowserPane implements PaneLike {
     this.urlPoll = setInterval(() => void this.syncUrl(), 800);
   }
   private async syncUrl(): Promise<void> {
-    if (!this.created || this.disposed || !this.isVisible) return;
+    if (!this.created || this.disposed || !this.isVisible || document.hidden) return;
     try {
       const raw = await invoke<string>("browser_cdp", {
         id: this.paneId,

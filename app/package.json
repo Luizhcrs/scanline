@@ -1,13 +1,17 @@
 {
-  "name": "app",
+  "name": "scanline",
   "private": true,
   "version": "0.1.0",
+  "description": "Windows-native terminal multiplexer + scriptable browser for AI coding agents",
+  "license": "MIT",
+  "author": "Luiz <luizhcrs@gmail.com>",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

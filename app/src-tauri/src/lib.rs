@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -79,7 +79,10 @@ fn pty_spawn(
         );
     }
     // Start dir: a restored pane's saved cwd (if it still exists), else home.
+    // OSC 7 reports forward slashes (C:/Users/...); normalize to backslashes —
+    // ConPTY's CreateProcess working-directory is unreliable with '/'.
     let start_dir = cwd
+        .map(|c| c.replace('/', "\\"))
         .filter(|c| std::path::Path::new(c).is_dir())
         .or_else(|| std::env::var("USERPROFILE").ok());
     if let Some(dir) = start_dir {
@@ -116,47 +119,54 @@ fn pty_spawn(
 
     // Output pump. Two parts so a high-rate ("firehose") shell doesn't flood the
     // IPC bridge:
-    //  - reader thread: blocking reads append into a shared buffer.
-    //  - flusher thread: ~every 8ms drains the buffer and emits ONE event with
-    //    the bytes base64-encoded. base64 (~1.33x) is far smaller and cheaper to
-    //    parse than Tauri's default Vec<u8> -> JSON number-array (~4-6x).
+    //  - reader thread: blocking reads append into a shared buffer and signal.
+    //  - flusher thread: BLOCKS on a condvar until there's data (idle ptys cost
+    //    ~0 CPU instead of 125 wakeups/sec), then coalesces an 8ms burst into ONE
+    //    base64 event. base64 (~1.33x) is far smaller and cheaper to parse than
+    //    Tauri's default Vec<u8> -> JSON number-array (~4-6x).
     // The frontend base64-decodes and writes to xterm.
     let data_event = format!("pty://{id}/data");
     let exit_event = format!("pty://{id}/exit");
-    let buffer: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let buffer: Arc<(Mutex<Vec<u8>>, Condvar)> = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
     let done = Arc::new(AtomicBool::new(false));
 
     let rbuf = buffer.clone();
     let rdone = done.clone();
     thread::spawn(move || {
+        let (lock, cv) = &*rbuf;
         let mut tmp = [0u8; 8192];
         loop {
             match reader.read(&mut tmp) {
                 Ok(0) => break,
                 // Poison-tolerant: a panic elsewhere must not silently kill the
                 // pty output pipeline (would look like a frozen terminal).
-                Ok(n) => rbuf
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend_from_slice(&tmp[..n]),
+                Ok(n) => {
+                    lock.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(&tmp[..n]);
+                    cv.notify_one();
+                }
                 Err(_) => break,
             }
         }
         rdone.store(true, Ordering::SeqCst);
+        cv.notify_one(); // wake the flusher so it observes `done` and exits
     });
 
     let app2 = app.clone();
     thread::spawn(move || {
         use base64::Engine;
+        let (lock, cv) = &*buffer;
         loop {
-            thread::sleep(std::time::Duration::from_millis(8));
             let chunk = {
-                let mut b = buffer.lock().unwrap_or_else(|e| e.into_inner());
+                let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
+                // Block until there's output (or the pty ended) — no idle polling.
+                while b.is_empty() && !done.load(Ordering::SeqCst) {
+                    let (g, _) = cv
+                        .wait_timeout(b, std::time::Duration::from_millis(50))
+                        .unwrap_or_else(|e| e.into_inner());
+                    b = g;
+                }
                 if b.is_empty() {
-                    if done.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    continue;
+                    break; // empty + done
                 }
                 std::mem::take(&mut *b)
             };

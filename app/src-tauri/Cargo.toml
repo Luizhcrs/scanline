@@ -1,9 +1,11 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Windows-native terminal multiplexer + scriptable browser for AI coding agents"
+authors = ["Luiz <luizhcrs@gmail.com>"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/luizhcrs/scanline"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +15,14 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Release: smaller, faster binary. panic stays "unwind" so the crash.log hook
+# runs (DWM/CDP/FFI paths are not validated for abort-unwinding).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 3
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

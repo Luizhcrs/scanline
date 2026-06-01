@@ -71,6 +71,9 @@ export class FeedPanel {
       this.list.appendChild(row);
       if (wasEmpty) pushOverlay();
       this.panel.style.display = "flex";
+      // Focus the primary option so the card is keyboard-operable (Enter to
+      // confirm) — the agent is blocked waiting on this decision.
+      (btns.firstElementChild as HTMLElement | null)?.focus();
     });
   }
 }

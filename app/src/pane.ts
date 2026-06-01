@@ -234,6 +234,19 @@ export class Pane implements PaneLike {
     });
     this.unlisteners.push(dataUn, exitUn);
 
+    // Wire input -> pty BEFORE spawning. The shell's PSReadLine emits a DSR
+    // cursor-position query (ESC[6n) on startup and BLOCKS until the terminal
+    // replies; xterm generates that reply through onData. If onData isn't
+    // registered when the (fast) DSR arrives — common when several panes spawn
+    // at once on session restore — the reply is dropped and the shell hangs
+    // with no prompt. Registering onData first closes that race.
+    this.term.onData((data) => {
+      // xterm hands input as a string of char codes 0–255 (one byte each).
+      // Send raw bytes so non-UTF-8 sequences survive.
+      const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
+      invoke("pty_write", { id, data: bytes });
+    });
+
     // Disposed during the awaits above (e.g. session restore disposes the
     // placeholder pane before its pty_spawn fires)? Don't spawn — otherwise the
     // backend gets a pty_close (no-op, nothing spawned yet) then this spawn
@@ -252,13 +265,6 @@ export class Pane implements PaneLike {
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
-
-    this.term.onData((data) => {
-      // xterm hands input as a string of char codes 0–255 (one byte each).
-      // Send raw bytes so non-UTF-8 sequences survive.
-      const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
-      invoke("pty_write", { id, data: bytes });
-    });
 
     // Refit whenever the pane element changes size (splits, drags, window).
     this.resizeObserver = new ResizeObserver(() => this.refit());

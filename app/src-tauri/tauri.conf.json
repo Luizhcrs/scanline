@@ -13,9 +13,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "Scanline",
         "width": 1100,
-        "height": 700
+        "height": 700,
+        "minWidth": 640,
+        "minHeight": 400,
+        "theme": "Dark"
       }
     ],
     "security": {

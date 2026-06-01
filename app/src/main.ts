@@ -253,6 +253,7 @@ class App {
   /** Persist the session every 8s when it has changed. */
   private startAutosave(): void {
     setInterval(() => {
+      if (document.hidden) return; // minimized: nothing changes, skip disk I/O
       const json = JSON.stringify(this.serializeSession());
       if (json !== this.lastSaved) {
         this.lastSaved = json;
@@ -641,6 +642,7 @@ class App {
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private async refreshMeta(): Promise<void> {
+    if (document.hidden) return; // minimized: don't spawn git/gh/netstat
     const w = this.activeWs;
     if (!w) return; // boot not finished yet
     const fs = w.layout.focusedSurface;

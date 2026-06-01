@@ -1,3 +1,3 @@
-module scanline-cli
+module scanline
 
 go 1.25

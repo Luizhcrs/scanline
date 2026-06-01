@@ -14,9 +14,11 @@ cli/*.exe
 *.log
 Thumbs.db
 
-# temp screenshots
-_shot.png
+# temp / scratch (screenshots written during dev)
+*.tmp
+.tmp-shot.png
+*.tmp.png
 
-# Go CLI build artifacts
-cli/scanline.exe
+# Go CLI build artifacts (covered by cli/*.exe above; kept explicit)
 cli/scanline
+cli/scanline-cli.exe
