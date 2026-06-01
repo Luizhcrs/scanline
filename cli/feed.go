@@ -13,9 +13,10 @@ import (
 //
 //	scanline ask [--title T] [--options a,b,c] <prompt...>
 //
-// Default options are Allow,Deny. Exit code is 0 when the first option is
-// chosen (the "allow"-style affirmative), 1 otherwise — so a hook can branch
-// on `scanline ask ... && <proceed>`.
+// Default options are Allow,Deny. Exit code is the 0-based index of the chosen
+// option (Allow=0, Deny=1, …) so `scanline ask ... && <proceed>` gates on the
+// first option while richer callers branch on $?. A dismissed/timed-out card
+// prints an empty line and exits 64, distinguishable from a real choice.
 func runAsk(args []string) {
 	title := ""
 	options := []string{}
@@ -63,7 +64,18 @@ func runAsk(args []string) {
 		decision, _ = r["decision"].(string)
 	}
 	fmt.Println(decision)
-	if decision != options[0] {
-		os.Exit(1)
+	idx := -1
+	for i, o := range options {
+		if o == decision {
+			idx = i
+			break
+		}
 	}
+	if idx < 0 {
+		// Empty/unknown decision: card dismissed or the call timed out. Make
+		// it distinguishable from a real option choice (esp. a real "Deny").
+		fmt.Fprintln(os.Stderr, "scanline: no decision (card dismissed or timed out)")
+		os.Exit(64)
+	}
+	os.Exit(idx)
 }
