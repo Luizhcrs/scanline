@@ -31,3 +31,11 @@ cli/scanline
 cli/scanline-cli.exe
 # Bundled-into-Tauri copy of the CLI (built by `npm run build:cli`)
 app/src-tauri/scanline.exe
+
+# Internal planning docs kept local, NEVER published (clean-room: the feature
+# catalog maps GPL cmux source by file:line — must not ship in a public repo).
+internal/
+
+# Audit workflow scratch
+WF_*.json
+WF_*.md

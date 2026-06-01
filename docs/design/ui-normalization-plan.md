@@ -1,10 +1,15 @@
-# Scanline UI — design identity
+# Scanline UI normalization plan
 
-Gerado por workflow de auditoria (60 findings, 4 dimensoes). Fonte unica de verdade pra normalizar a interface.
+Status: partially applied. The token system below and the green-to-blue accent
+migration shipped in `app/src/styles.css`; the per-component unification steps
+are the remaining roadmap. Derived from a UI audit (60 findings, 4 dimensions).
+Reference for the dark, minimalist, single-accent identity — not a description
+of the final state.
 
 ## Tokens
 
-Colar no topo de `src/styles.css` (`:root`), substituir os hex hardcoded por estes tokens.
+The `:root` block now living at the top of `app/src/styles.css`; hardcoded hex
+values were replaced with these tokens.
 
 ```css
 :root {

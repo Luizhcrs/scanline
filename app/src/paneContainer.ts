@@ -314,7 +314,8 @@ export class PaneContainer implements PaneLike {
   }
 
   private renderStrip(): void {
-    // single surface: keep the strip thin/empty but keep the + affordance.
+    // Tabs always render; close buttons are suppressed when only one surface
+    // exists (see surfaces.length > 1 guard below). The + affordance is always present.
     const tabs = this.surfaces.map((s, i) => {
       const tab = document.createElement("div");
       tab.className = "surface-tab";

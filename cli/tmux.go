@@ -128,7 +128,7 @@ func runTmuxCompat(args []string) {
 	case "-V", "-v":
 		fmt.Println("tmux 3.4")
 	default:
-		// new-window, capture-pane, display-message, set-option, … — no-op.
+		// new-window, display-message, set-option, … — no-op.
 	}
 	if rpcFailed {
 		os.Exit(1)

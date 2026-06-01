@@ -201,7 +201,7 @@ Config lives in `%APPDATA%\scanline\scanline.json` (JSONC — `//` and `/* */` c
     "fontFamily": "Consolas, 'Cascadia Mono', monospace",
     "fontSize": 14,
     "scrollback": 10000,
-    "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5ff967" }
+    "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5aa0ff" }
   },
   "ui": {
     "fontFamily": "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif",
@@ -296,7 +296,7 @@ scanline/
     browser.go          scriptable-browser CLI
     hooks.go            Claude Code hook dispatch + setup
     feed.go             blocking approval (scanline ask)
-  docs/specs/           design spec, port plan, feature catalog
+  docs/design/          UI normalization plan
 ```
 
 ## License

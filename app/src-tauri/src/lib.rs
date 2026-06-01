@@ -22,7 +22,6 @@ use tauri::{
 struct Pty {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
-    #[allow(dead_code)]
     child: Box<dyn Child + Send + Sync>,
     /// OS pid of the shell, root for the pane's listening-ports process tree.
     pid: u32,
@@ -1059,70 +1058,6 @@ async fn browser_cdp(
     cdp_call(webview, method, params).await
 }
 
-/// Spike 1 self-test: prove the CDP bridge returns real data. Runs against the
-/// app's own "main" webview (always present) so it does not need a browser pane.
-/// Results are printed to the dev console as the GO/NO-GO evidence.
-#[tauri::command]
-async fn cdp_selftest(app: AppHandle) -> Result<String, String> {
-    let webview = app
-        .get_webview("main")
-        .ok_or_else(|| "main webview not found".to_string())?;
-
-    let mut report = String::new();
-    let mut step = |label: &str, r: &Result<String, String>| {
-        let line = match r {
-            Ok(s) => {
-                let preview: String = s.chars().take(160).collect();
-                format!("[CDP OK] {label} ({} bytes): {preview}", s.len())
-            }
-            Err(e) => format!("[CDP ERR] {label}: {e}"),
-        };
-        println!("{line}");
-        report.push_str(&line);
-        report.push('\n');
-    };
-
-    // 1. Runtime.evaluate returning a value (the core capability eval lacks).
-    let r = cdp_call(
-        webview.clone(),
-        "Runtime.evaluate".into(),
-        Some(r#"{"expression":"2 + 40","returnByValue":true}"#.into()),
-    )
-    .await;
-    step("Runtime.evaluate 2+40", &r);
-
-    // 2. Read a real DOM value back out.
-    let r = cdp_call(
-        webview.clone(),
-        "Runtime.evaluate".into(),
-        Some(r#"{"expression":"navigator.userAgent","returnByValue":true}"#.into()),
-    )
-    .await;
-    step("Runtime.evaluate userAgent", &r);
-
-    // 3. Accessibility tree (needs the domain enabled first) — the snapshot
-    //    primitive agent-browser is built on.
-    let _ = cdp_call(webview.clone(), "Accessibility.enable".into(), None).await;
-    let r = cdp_call(
-        webview.clone(),
-        "Accessibility.getFullAXTree".into(),
-        None,
-    )
-    .await;
-    step("Accessibility.getFullAXTree", &r);
-
-    // 4. Full-page screenshot (returns base64) — proves binary-ish payloads.
-    let r = cdp_call(
-        webview.clone(),
-        "Page.captureScreenshot".into(),
-        Some(r#"{"format":"png"}"#.into()),
-    )
-    .await;
-    step("Page.captureScreenshot", &r);
-
-    Ok(report)
-}
-
 // ---- Control server (named pipe) ----
 //
 // External processes (the agent tmux-shim, a CLI, scripts) drive the running
@@ -1528,7 +1463,6 @@ pub fn run() {
             browser_close,
             browser_devtools,
             browser_cdp,
-            cdp_selftest,
             control_reply,
             control_frontend_ready,
             repo_info,

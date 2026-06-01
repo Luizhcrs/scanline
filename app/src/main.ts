@@ -75,7 +75,6 @@ interface ControlCommand {
   key?: string;
   delta?: number;
   verb?: string;
-  ref?: string;
   args?: string[];
   status?: string;
   options?: string[];
@@ -989,7 +988,6 @@ class App {
       layout.splitFocused(newBrowserLeaf());
       return true;
     }
-    // Toggle sidebar (Ctrl+B)
     if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "b") {
       this.toggleSidebar();
       return true;
@@ -1009,7 +1007,6 @@ class App {
       layout.focusedPane.closeActiveSurface?.();
       return true;
     }
-    // Surface tabs (newTab handled by the actions table)
     if (e.ctrlKey && e.key === "Tab") {
       if (e.shiftKey) layout.focusedPane.prevSurface?.();
       else layout.focusedPane.nextSurface?.();
@@ -1020,8 +1017,6 @@ class App {
       layout.focusedPane.selectSurface?.(n === 9 ? 999 : n - 1);
       return true;
     }
-    // Settings/minimal/fullscreen handled by the actions table.
-    // Notifications
     if (e.altKey && e.shiftKey && key === "n") {
       this.notifs.togglePanel();
       return true;
@@ -1030,7 +1025,6 @@ class App {
       this.notifs.jumpLatestUnread();
       return true;
     }
-    // Terminal UX
     if (e.ctrlKey && e.shiftKey && key === "k") {
       focusedTerminal()?.clear();
       return true;
