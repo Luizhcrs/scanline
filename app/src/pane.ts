@@ -35,6 +35,8 @@ export class Pane implements PaneLike {
   /** Fired on OSC 9 / OSC 777 notify sequences or the bell — wired by Layout to
    *  the notification store. */
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
+  /** Ctrl+click on a terminal link -> open it as a browser pane. */
+  onOpenUrl?: (pane: PaneLike, url: string) => void;
 
   private _title = "";
   private _customTitle = "";
@@ -109,7 +111,14 @@ export class Pane implements PaneLike {
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
-    this.term.loadAddon(new WebLinksAddon());
+    // Ctrl+click a link -> open it as a Scanline browser pane (not the external
+    // browser). Plain click is left for text selection.
+    this.term.loadAddon(
+      new WebLinksAddon((e, uri) => {
+        if (e.ctrlKey || e.metaKey) this.onOpenUrl?.(this, uri);
+        else window.open(uri); // plain click: external browser (xterm default)
+      }),
+    );
 
     // Intercept Scanline shortcuts before xterm forwards keys to the pty.
     // Returning false tells xterm to ignore the event.
@@ -362,6 +371,6 @@ export class Pane implements PaneLike {
     // Drop back-references so the disposed pane (and its xterm) is collectable
     // even if a stale ref lingers; these closures capture the long-lived App.
     this.keyHandler = null;
-    this.onExit = this.onFocusRequest = this.onNotify = undefined;
+    this.onExit = this.onFocusRequest = this.onNotify = this.onOpenUrl = undefined;
   }
 }

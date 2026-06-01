@@ -28,6 +28,7 @@ export class Layout {
   private focused: PaneLike;
   private keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   private paneFactory: (() => PaneLike) | null = null;
+  private browserFactory: ((url: string) => PaneLike) | null = null;
   private mounted = new WeakSet<PaneLike>();
   private zoomed: PaneLike | null = null;
   private notifyHandler: ((pane: PaneLike, title: string, body: string) => void) | null = null;
@@ -61,6 +62,11 @@ export class Layout {
   /** Provide a factory used to create a terminal pane (e.g. for split buttons). */
   setPaneFactory(fn: () => PaneLike): void {
     this.paneFactory = fn;
+  }
+
+  /** Factory for a browser pane (Ctrl+click a terminal link opens one beside it). */
+  setBrowserFactory(fn: (url: string) => PaneLike): void {
+    this.browserFactory = fn;
   }
 
   /** Create a new terminal pane via the factory and split the focused pane. */
@@ -248,6 +254,11 @@ export class Layout {
       this.splitWithNew();
     };
     pane.onNotify = (p, t, b) => this.notifyHandler?.(p, t, b);
+    pane.onOpenUrl = (p, url) => {
+      if (!this.browserFactory) return;
+      this.setFocus(p);
+      this.splitFocused(this.browserFactory(url));
+    };
     pane.keyHandler = this.keyHandler;
   }
 

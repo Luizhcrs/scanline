@@ -26,6 +26,7 @@ export class PaneContainer implements PaneLike {
   onCloseRequest?: (pane: PaneLike) => void;
   onSplitRequest?: (pane: PaneLike) => void;
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
+  onOpenUrl?: (pane: PaneLike, url: string) => void;
 
   // Setting the key handler (Layout does `pane.keyHandler = fn`) propagates to
   // every surface so xterm's custom-key path sees app shortcuts.
@@ -80,6 +81,7 @@ export class PaneContainer implements PaneLike {
     s.onExit = () => this.closeSurface(s);
     s.onCloseRequest = () => this.closeSurface(s);
     s.onSplitRequest = () => this.onSplitRequest?.(this);
+    s.onOpenUrl = (_s, url) => this.onOpenUrl?.(this, url);
     s.onNotify = (_surf, t, b) => {
       if (s !== this.activeSurface) {
         this.flagged.add(s);

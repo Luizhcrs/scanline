@@ -460,6 +460,7 @@ class App {
 
     const layout = new Layout(grid, newTerminalLeaf());
     layout.setPaneFactory(newTerminalLeaf);
+    layout.setBrowserFactory((url) => newBrowserLeaf(url));
     layout.setKeyHandler((e) => this.onKey(e));
     const ws: Workspace = {
       id: this.nextWsId++,
