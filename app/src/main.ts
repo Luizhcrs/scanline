@@ -8,6 +8,7 @@ import { NotificationStore } from "./notifications";
 import { browserDispatch } from "./browserApi";
 import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
+import { ContextMenu, type MenuItem } from "./contextmenu";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -114,6 +115,7 @@ class App {
   private palette = new CommandPalette();
   private findBar = new FindBar();
   private feed = new FeedPanel();
+  private menu = new ContextMenu();
 
   constructor(
     private sidebar: HTMLElement,
@@ -126,6 +128,7 @@ class App {
     this.notifs.onChange = () => this.renderSidebar();
 
     this.installResizer();
+    this.installContextMenu();
     // Restore the prior session (or open a fresh workspace) before anything
     // that touches activeWs runs against it.
     void this.boot();
@@ -212,6 +215,62 @@ class App {
         void invoke("save_session", { json });
       }
     }, 8000);
+  }
+
+  // ---- context menu ----
+  private installContextMenu(): void {
+    document.addEventListener("contextmenu", (e) => {
+      // Replace WebView2's native menu everywhere in the chrome.
+      e.preventDefault();
+      const target = e.target as HTMLElement;
+      const wsRow = target.closest<HTMLElement>(".ws-row");
+      if (wsRow) return this.showWsMenu(e.clientX, e.clientY, wsRow);
+      const container = this.containerFromEl(target);
+      if (container) {
+        this.activeLayout.setFocus(container);
+        return this.showPaneMenu(e.clientX, e.clientY, container);
+      }
+      this.menu.show(e.clientX, e.clientY, [
+        { label: "New Workspace", hint: "Ctrl+N", action: () => this.newWorkspace() },
+      ]);
+    });
+  }
+
+  /** The grid leaf (container) whose element contains a DOM node, if any. */
+  private containerFromEl(el: HTMLElement): PaneLike | null {
+    if (!this.activeWs) return null;
+    return this.activeLayout.panes().find((p) => p.el.contains(el)) ?? null;
+  }
+
+  private showPaneMenu(x: number, y: number, container: PaneLike): void {
+    const L = this.activeLayout;
+    const c = container as PaneContainer;
+    const items: MenuItem[] = [
+      { label: "Rename Tab", action: () => c.startRenameActive() },
+      { label: "New Tab", hint: "Ctrl+T", action: () => c.newTerminalTab() },
+      { separator: true },
+      { label: "Split Right", action: () => L.splitFocused(newTerminalLeaf(), "row") },
+      { label: "Split Down", action: () => L.splitFocused(newTerminalLeaf(), "col") },
+      { label: "Open Browser", action: () => L.splitFocused(newBrowserLeaf()) },
+      { separator: true },
+      { label: "Close Tab", action: () => c.closeActiveSurface() },
+      { label: "Close Pane", danger: true, action: () => void L.closePane(container) },
+    ];
+    this.menu.show(x, y, items);
+  }
+
+  private showWsMenu(x: number, y: number, row: HTMLElement): void {
+    const id = Number(row.dataset.wsId);
+    const w = this.workspaces.find((ws) => ws.id === id);
+    if (!w) return;
+    const label = row.querySelector<HTMLElement>(".ws-label");
+    const items: MenuItem[] = [
+      { label: "Rename Workspace", action: () => label && this.beginWsRename(w, label) },
+      { label: "New Workspace", hint: "Ctrl+N", action: () => this.newWorkspace() },
+      { separator: true },
+      { label: "Close Workspace", danger: true, action: () => this.closeWorkspace(w.id) },
+    ];
+    this.menu.show(x, y, items);
   }
 
   // ---- workspaces ----
@@ -314,6 +373,7 @@ class App {
     const rows = this.workspaces.map((w, i) => {
       const row = document.createElement("div");
       row.className = "ws-row" + (i === this.active ? " active" : "");
+      row.dataset.wsId = String(w.id);
       row.onclick = () => this.selectWorkspace(i);
 
       const top = document.createElement("div");
@@ -657,16 +717,13 @@ class App {
       focusedTerminal()?.clear();
       return true;
     }
-    if (e.ctrlKey && !e.altKey && (key === "=" || key === "+")) {
-      focusedTerminal()?.adjustFontSize(1);
-      return true;
-    }
-    if (e.ctrlKey && !e.altKey && key === "-") {
-      focusedTerminal()?.adjustFontSize(-1);
-      return true;
-    }
-    if (e.ctrlKey && !e.altKey && key === "0") {
-      focusedTerminal()?.adjustFontSize(0);
+    // Ctrl +/-/0: terminal font size, OR browser page zoom — arbitrated by the
+    // focused leaf's kind so the same chord does the right thing in either.
+    if (e.ctrlKey && !e.altKey && (key === "=" || key === "+" || key === "-" || key === "0")) {
+      const delta = key === "0" ? 0 : key === "-" ? -1 : 1;
+      const s = layout.focusedSurface;
+      if (s.kind === "browser") (s as BrowserPane).adjustZoom(delta);
+      else (s as Pane).adjustFontSize(delta);
       return true;
     }
     if (e.ctrlKey && e.shiftKey && key === "c") {

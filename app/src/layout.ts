@@ -154,6 +154,11 @@ export class Layout {
     if (first) this.setFocus(first);
   }
 
+  /** All leaf panes (containers) in the grid, in tree order. */
+  panes(): PaneLike[] {
+    return this.collectPanes(this.root);
+  }
+
   /** Find a leaf (pane container) by its stable id. */
   paneById(id: number): PaneLike | null {
     return this.collectPanes(this.root).find((p) => p.paneId === id) ?? null;

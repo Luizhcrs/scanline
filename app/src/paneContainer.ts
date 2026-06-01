@@ -274,6 +274,13 @@ export class PaneContainer implements PaneLike {
     this.strip.replaceChildren(...tabs, add);
   }
 
+  /** Start inline rename of the active tab (context menu / shortcut). */
+  startRenameActive(): void {
+    const labels = this.strip.querySelectorAll<HTMLElement>(".surface-tab-label");
+    const label = labels[this.active];
+    if (label) this.beginRename(this.surfaces[this.active], label);
+  }
+
   /** Inline-edit a tab label. Enter saves, Escape cancels, blur saves. */
   private beginRename(s: PaneLike, label: HTMLElement): void {
     const input = document.createElement("input");

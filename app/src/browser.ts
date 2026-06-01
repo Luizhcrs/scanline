@@ -140,6 +140,18 @@ export class BrowserPane implements PaneLike {
     }
   }
 
+  private _zoom = 1;
+  /** Page zoom (Ctrl+=/-/0 when a browser leaf is focused). delta 0 resets. */
+  adjustZoom(delta: number): void {
+    this._zoom = delta === 0 ? 1 : Math.max(0.3, Math.min(3, this._zoom + delta * 0.1));
+    if (!this.created) return;
+    invoke("browser_cdp", {
+      id: this.paneId,
+      method: "Runtime.evaluate",
+      params: JSON.stringify({ expression: `document.body.style.zoom=${this._zoom}` }),
+    }).catch(() => {});
+  }
+
   /** Sync the native webview to the viewport element's rectangle. */
   refit(): void {
     if (this.disposed) return;

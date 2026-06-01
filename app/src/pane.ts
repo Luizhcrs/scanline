@@ -46,6 +46,12 @@ export class Pane implements PaneLike {
   private _title = "";
   private _customTitle = "";
   private _cwd = "";
+  private lastNotifyAt = 0;
+  /** Emit a notification, stamping the time so a trailing BEL is deduped. */
+  private notify(title: string, body: string): void {
+    this.lastNotifyAt = Date.now();
+    this.onNotify?.(this, title, body);
+  }
   /** User rename (wins), else terminal title from OSC 0/2, else the command. */
   get title(): string {
     return (
@@ -168,16 +174,21 @@ export class Pane implements PaneLike {
     // OSC 9 ; <message>  (ConEmu/Windows-Terminal growl-style notify). Numeric
     // first field (9;4;… progress) is not a notification — skip those.
     this.term.parser.registerOscHandler(9, (data) => {
-      if (!/^\d+;/.test(data)) this.onNotify?.(this, "", data);
+      if (!/^\d+;/.test(data)) this.notify("", data);
       return true;
     });
     // OSC 777 ; notify ; <title> ; <body>  (urxvt/iTerm-style).
     this.term.parser.registerOscHandler(777, (data) => {
       const p = data.split(";");
-      if (p[0] === "notify") this.onNotify?.(this, p[1] ?? "", p.slice(2).join(";"));
+      if (p[0] === "notify") this.notify(p[1] ?? "", p.slice(2).join(";"));
       return true;
     });
-    this.term.onBell(() => this.onNotify?.(this, "", ""));
+    // An OSC notify is terminated by BEL, which also fires onBell - dedupe so a
+    // single notify is not counted twice (notify + phantom bell).
+    this.term.onBell(() => {
+      if (Date.now() - this.lastNotifyAt < 100) return;
+      this.notify("", "");
+    });
   }
 
   /** Serialize the terminal buffer + scrollback (surface.read_text / capture-pane). */
