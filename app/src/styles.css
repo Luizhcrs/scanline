@@ -1,10 +1,85 @@
 :root {
-  --bg: #0d1017;
-  --gutter: #1c2230;
-  --gutter-hover: #2d3650;
-  --focus: #5ff967;
-  /* Chrome (sidebar, tabs, menus, panels) uses a friendly UI font; only the
-     terminal content stays monospace (xterm sets its own fontFamily). */
+  /* ============ SCANLINE DESIGN TOKENS ============
+     Minimal, dark, terminal-native. One identity for all chrome.
+     Terminal content keeps its own xterm font/colors. */
+
+  /* --- Surfaces (darkest sink -> elevated overlay) --- */
+  --bg: #0d1017;          /* app background, active tab, palette/find/browser inputs */
+  --bg-sink: #0a0d13;     /* darkest: sidebar, surface-tabs strip, settings inputs */
+  --bg-elev: #11151f;     /* elevated floating surface: ALL overlays + cards + tabs */
+  --bg-elev2: #161b26;    /* secondary elevation: row hover / subtle dividers */
+
+  /* --- Borders --- */
+  --border: #1c2230;           /* default 1px borders */
+  --border-strong: #2d3650;    /* stronger borders, hover bg, separators, scrollbar thumb */
+  --border-strongest: #3a455f; /* scrollbar thumb hover only */
+  --gutter: var(--border);           /* semantic alias kept for split dividers */
+  --gutter-hover: var(--border-strong);
+
+  /* --- Text --- */
+  --text: #c5c8c6;        /* primary text */
+  --text-soft: #a8acb3;   /* secondary (labels, body, hints) */
+  --text-dim: #8a8f99;    /* dim (inactive rows, close glyphs) */
+  --text-faint: #5a6172;  /* faint (meta, grip dots, kbd hints) */
+
+  /* --- Accent (interactive blue) --- */
+  --accent: #5aa0ff;          /* selection, focus ring, primary buttons, flags, notif ring */
+  --accent-hover: #6fb0ff;    /* primary button hover */
+  --accent-bg: #1c2740;       /* selected-row accent surface */
+  --accent-rgb: 90 160 255;   /* for glow alphas: rgb(var(--accent-rgb) / .25) */
+  --on-accent: #0a0d13;       /* text/icon on accent fills */
+
+  /* --- Focus alias (blue) --- */
+  --focus: var(--accent);     /* back-compat alias: existing var(--focus) sites turn blue */
+
+  /* --- Status --- */
+  --danger: #c0392b;      /* destructive hover, error dot */
+  --on-danger: #ffffff;   /* text on danger fill */
+  --warning: #e3b341;     /* running/pending dot */
+
+  /* --- Radius scale --- */
+  --r-xs: 3px;   /* tiny chips: inline rename */
+  --r-sm: 5px;   /* controls: buttons, inputs, tabs, menu items */
+  --r-md: 8px;   /* containers: menus, panels, bars */
+  --r-lg: 10px;  /* large modals: settings/help/palette/feed cards */
+
+  /* --- Spacing scale (4px rhythm) --- */
+  --s1: 2px;
+  --s2: 4px;
+  --s3: 6px;
+  --s4: 8px;
+  --s5: 12px;
+  --s6: 16px;
+  --s7: 20px;
+
+  /* --- Type scale --- */
+  --fs-xs: 10px;   /* badges, meta */
+  --fs-sm: 11px;   /* hints, tabs */
+  --fs-base: 12px; /* body chrome */
+  --fs-md: 13px;   /* menus / dialog body */
+  --fs-lg: 14px;   /* palette input, icon glyph buttons */
+  --fs-xl: 16px;   /* titles */
+
+  /* --- Border widths --- */
+  --bw-hair: 1px;  /* default borders + focus ring */
+  --bw-emph: 2px;  /* drag drop-target + accent bars */
+
+  /* --- Elevation --- */
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5);   /* menu, find, notif */
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.6);    /* palette, settings, help, feed */
+  --scrim: rgba(0, 0, 0, 0.5);                       /* modal backdrop dim */
+
+  /* --- Layering scale --- */
+  --z-popover: 2000;  /* context-menu, find-bar (transient) */
+  --z-overlay: 2100;  /* notif-panel, feed-panel (persistent popovers) */
+  --z-modal: 2500;    /* palette, settings, help (full modal) */
+
+  /* --- Motion --- */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 0.12s;    /* hover/press feedback */
+  --t-enter: 0.14s;   /* overlay fade-in */
+
+  /* --- Chrome font --- */
   --ui-font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -24,13 +99,13 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2d3650;
+  background: var(--border-strong);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a455f;
+  background: var(--border-strongest);
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -39,7 +114,7 @@
 /* Keyboard focus indicator for all interactive chrome (buttons, inputs, rows).
    Mouse clicks don't trigger :focus-visible, so it only shows for keyboard nav. */
 :focus-visible {
-  outline: 2px solid var(--focus, #5aa0ff);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -75,8 +150,8 @@ textarea {
   flex-direction: column;
   gap: 2px;
   padding: 6px 4px;
-  background: #0a0d13;
-  border-right: 1px solid #1c2230;
+  background: var(--bg-sink);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 #content {
@@ -100,7 +175,7 @@ textarea {
   /* extra bottom room so the loading line sits below the meta text, not over it */
   padding: 6px 8px 10px;
   border-radius: 6px;
-  color: #8a8f99;
+  color: var(--text-dim);
   font: 12px/1.2 var(--ui-font);
   cursor: pointer;
   user-select: none;
@@ -112,12 +187,12 @@ textarea {
 }
 .ws-meta {
   font-size: 10px;
-  color: #5a6172;
+  color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Inset track inside the card; a green runner sweeps across while fetching. */
+/* Inset track inside the card; a blue runner sweeps across while fetching. */
 .ws-loading {
   position: absolute;
   left: 8px;
@@ -126,7 +201,7 @@ textarea {
   height: 2px;
   border-radius: 2px;
   overflow: hidden;
-  background: rgba(95, 249, 103, 0.12);
+  background: rgb(var(--accent-rgb) / 0.12);
 }
 .ws-loading::after {
   content: "";
@@ -135,7 +210,7 @@ textarea {
   height: 100%;
   width: 40%;
   border-radius: 2px;
-  background: var(--focus);
+  background: var(--accent);
   animation: ws-loading-run 1.1s ease-in-out infinite;
 }
 @keyframes ws-loading-run {
@@ -148,14 +223,14 @@ textarea {
   background: transparent;
 }
 .sidebar-resizer:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .ws-row:hover {
-  background: #11151f;
+  background: var(--bg-elev);
 }
 .ws-row.active {
-  background: #11151f;
-  color: #c5c8c6;
+  background: var(--bg-elev);
+  color: var(--text);
 }
 .ws-label {
   flex: 1 1 auto;
@@ -167,9 +242,9 @@ textarea {
 .surface-tab-rename {
   width: 100%;
   min-width: 60px;
-  background: #0a0d13;
-  color: #c5c8c6;
-  border: 1px solid var(--focus, #5aa0ff);
+  background: var(--bg-sink);
+  color: var(--text);
+  border: 1px solid var(--accent);
   border-radius: 3px;
   padding: 0 4px;
   font: inherit;
@@ -180,8 +255,8 @@ textarea {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #5aa0ff;
-  color: #061018;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 10px;
   line-height: 16px;
   text-align: center;
@@ -189,29 +264,29 @@ textarea {
 .ws-close {
   background: none;
   border: none;
-  color: #8a8f99;
+  color: var(--text-dim);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
   border-radius: 3px;
 }
 .ws-close:hover {
-  background: #c0392b;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 .ws-add {
   margin-top: 6px;
-  background: #11151f;
-  border: 1px solid #1c2230;
-  color: #8a8f99;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
   border-radius: 6px;
   padding: 6px;
   font: 12px var(--ui-font);
   cursor: pointer;
 }
 .ws-add:hover {
-  color: #c5c8c6;
-  background: #1c2230;
+  color: var(--text);
+  background: var(--border);
 }
 
 /* A split container holds two children and a gutter between them. */
@@ -265,17 +340,17 @@ textarea {
   overflow: hidden;
 }
 .pane-container.focused {
-  border-color: var(--focus);
-  box-shadow: inset 0 0 0 1px var(--focus);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 /* Drop target highlight while dragging a pane to reposition it. */
 .pane-container.drop-target {
-  border-color: #5aa0ff;
-  box-shadow: inset 0 0 0 2px #5aa0ff, inset 0 0 24px rgba(90, 160, 255, 0.25);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px rgb(var(--accent-rgb) / 0.25);
 }
 .pane-container.notif-ring {
-  border-color: #5aa0ff;
-  box-shadow: inset 0 0 0 1px #5aa0ff, 0 0 10px rgba(90, 160, 255, 0.5);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 10px rgb(var(--accent-rgb) / 0.5);
 }
 .pane-container.flash {
   animation: pane-flash 0.4s ease-in-out 2;
@@ -295,7 +370,7 @@ textarea {
   align-items: stretch;
   gap: 2px;
   padding: 3px 3px 0;
-  background: #0a0d13;
+  background: var(--bg-sink);
   overflow-x: auto;
 }
 .surface-tab {
@@ -304,21 +379,21 @@ textarea {
   gap: 4px;
   max-width: 160px;
   padding: 0 4px 0 8px;
-  background: #11151f;
-  border: 1px solid #1c2230;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 5px 5px 0 0;
-  color: #8a8f99;
+  color: var(--text-dim);
   font: 11px/1 var(--ui-font);
   cursor: pointer;
   white-space: nowrap;
 }
 .surface-tab.active {
   background: var(--bg);
-  color: #c5c8c6;
+  color: var(--text);
 }
 .surface-tab.flagged {
-  color: #5aa0ff;
+  color: var(--accent);
 }
 .surface-tab-label {
   overflow: hidden;
@@ -335,8 +410,8 @@ textarea {
   border-radius: 3px;
 }
 .surface-tab-close:hover {
-  background: #c0392b;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 /* Pane move handle (drag to reposition the pane). */
 .pane-grip {
@@ -346,14 +421,14 @@ textarea {
   margin: 0 2px;
   cursor: grab;
   border-radius: 3px;
-  background-image: radial-gradient(circle, #5a6172 1.2px, transparent 1.3px);
+  background-image: radial-gradient(circle, var(--text-faint) 1.2px, transparent 1.3px);
   background-size: 5px 5px;
   background-position: center;
   opacity: 0.55;
 }
 .pane-grip:hover {
   opacity: 1;
-  background-color: #1c2230;
+  background-color: var(--border);
 }
 .pane-grip:active {
   cursor: grabbing;
@@ -361,13 +436,13 @@ textarea {
 .surface-tab-add {
   background: none;
   border: none;
-  color: #8a8f99;
+  color: var(--text-dim);
   font-size: 14px;
   width: 22px;
   cursor: pointer;
 }
 .surface-tab-add:hover {
-  color: #c5c8c6;
+  color: var(--text);
 }
 
 /* A terminal pane. */
@@ -384,12 +459,12 @@ textarea {
   background: var(--bg);
 }
 .pane.focused {
-  border-color: rgba(95, 249, 103, 0.35);
+  border-color: rgb(var(--accent-rgb) / 0.35);
 }
 /* A pane with a pending notification (agent waiting). Cleared on focus. */
 .pane.notif-ring {
-  border-color: #5aa0ff;
-  box-shadow: inset 0 0 0 1px #5aa0ff, 0 0 10px rgba(90, 160, 255, 0.5);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 10px rgb(var(--accent-rgb) / 0.5);
 }
 
 /* Notifications panel (Alt+Shift+N). */
@@ -401,52 +476,52 @@ textarea {
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: #11151f;
-  border: 1px solid #2d3650;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   font: 12px var(--ui-font);
-  color: #c5c8c6;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  box-shadow: var(--shadow-popover);
 }
 .notif-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 10px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
 .notif-clear {
-  background: #1c2230;
-  color: #c5c8c6;
+  background: var(--border);
+  color: var(--text);
   border: none;
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;
 }
 .notif-clear:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .notif-list {
   overflow-y: auto;
 }
 .notif-row {
   padding: 8px 10px;
-  border-bottom: 1px solid #161b26;
-  border-left: 2px solid #5aa0ff;
+  border-bottom: 1px solid var(--bg-elev2);
+  border-left: 2px solid var(--accent);
   cursor: pointer;
 }
 .notif-row.read {
   border-left-color: transparent;
-  color: #8a8f99;
+  color: var(--text-dim);
 }
 .notif-row:hover {
-  background: #161b26;
+  background: var(--bg-elev2);
 }
 .notif-empty {
   padding: 14px 10px;
-  color: #8a8f99;
+  color: var(--text-dim);
 }
 
 /* Minimal mode: hide the sidebar + per-pane tab bars for a clean view. */
@@ -462,11 +537,11 @@ body.minimal .surface-tabs {
 .settings-overlay {
   position: absolute;
   inset: 0;
-  z-index: 2500;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--scrim);
 }
 .settings-card {
   width: 480px;
@@ -474,12 +549,12 @@ body.minimal .surface-tabs {
   max-height: 86vh;
   overflow-y: auto;
   padding: 18px 20px;
-  background: #11151f;
-  border: 1px solid #2d3650;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-modal);
   font: 13px var(--ui-font);
-  color: #c5c8c6;
+  color: var(--text);
 }
 .settings-title {
   font-size: 16px;
@@ -495,26 +570,26 @@ body.minimal .surface-tabs {
 }
 .settings-label {
   flex: 1 1 auto;
-  color: #a8acb3;
+  color: var(--text-soft);
 }
 .settings-input {
   flex: 0 0 220px;
-  background: #0a0d13;
-  color: #c5c8c6;
-  border: 1px solid #2d3650;
+  background: var(--bg-sink);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   padding: 5px 8px;
   font: inherit;
   outline: none;
 }
 .settings-input:focus {
-  border-color: var(--focus, #5aa0ff);
+  border-color: var(--accent);
 }
 .settings-color {
   flex: 0 0 44px;
   height: 26px;
-  background: #0a0d13;
-  border: 1px solid #2d3650;
+  background: var(--bg-sink);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   cursor: pointer;
 }
@@ -531,25 +606,25 @@ body.minimal .surface-tabs {
   margin-top: 18px;
 }
 .settings-btn {
-  background: #1c2230;
-  color: #c5c8c6;
-  border: 1px solid #2d3650;
+  background: var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 6px 16px;
   font: inherit;
   cursor: pointer;
 }
 .settings-btn:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .settings-btn.primary {
-  background: #5aa0ff;
-  border-color: #5aa0ff;
-  color: #0a0d13;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
   font-weight: 600;
 }
 .settings-btn.primary:hover {
-  background: #6fb0ff;
+  background: var(--accent-hover);
 }
 
 /* Keyboard-shortcut cheat sheet (Ctrl+/). */
@@ -559,7 +634,7 @@ body.minimal .surface-tabs {
 .help-section {
   margin: 14px 0 6px;
   font-weight: 600;
-  color: #5aa0ff;
+  color: var(--accent);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -575,24 +650,24 @@ body.minimal .surface-tabs {
   text-align: right;
   font-family: var(--ui-font);
   font-size: 12px;
-  color: #c5c8c6;
+  color: var(--text);
 }
 .help-row span {
-  color: #a8acb3;
+  color: var(--text-soft);
 }
 
 /* Custom right-click menu (replaces WebView2's native menu). */
 .context-menu {
   position: absolute;
-  z-index: 2000;
+  z-index: var(--z-popover);
   min-width: 180px;
   padding: 4px;
-  background: #161b26;
-  border: 1px solid #2d3650;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-popover);
   font: 13px var(--ui-font);
-  color: #c5c8c6;
+  color: var(--text);
   user-select: none;
 }
 .context-item {
@@ -605,23 +680,23 @@ body.minimal .surface-tabs {
   cursor: pointer;
 }
 .context-item:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .context-item.danger:hover {
-  background: #c0392b;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 .context-hint {
-  color: #5a6172;
+  color: var(--text-faint);
   font-size: 11px;
 }
 .context-item:hover .context-hint {
-  color: #aeb4c0;
+  color: var(--text-soft);
 }
 .context-sep {
   height: 1px;
   margin: 4px 6px;
-  background: #2d3650;
+  background: var(--border-strong);
 }
 
 /* Feed: blocking agent approval cards (centered, prominent). */
@@ -635,27 +710,27 @@ body.minimal .surface-tabs {
   max-height: 70vh;
   display: flex;
   flex-direction: column;
-  background: #11151f;
-  border: 1px solid #5aa0ff;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
   border-radius: 10px;
-  z-index: 1200;
+  z-index: var(--z-overlay);
   font: 13px var(--ui-font);
-  color: #c5c8c6;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 .feed-header {
   padding: 8px 12px;
-  border-bottom: 1px solid #1c2230;
+  border-bottom: 1px solid var(--border);
   font-weight: 600;
-  color: #5aa0ff;
+  color: var(--accent);
 }
 .feed-list {
   overflow-y: auto;
 }
 .feed-card {
   padding: 12px;
-  border-bottom: 1px solid #161b26;
+  border-bottom: 1px solid var(--bg-elev2);
 }
 .feed-card:last-child {
   border-bottom: none;
@@ -665,7 +740,7 @@ body.minimal .surface-tabs {
   margin-bottom: 4px;
 }
 .feed-card-body {
-  color: #a8acb3;
+  color: var(--text-soft);
   white-space: pre-wrap;
   word-break: break-word;
   margin-bottom: 10px;
@@ -678,25 +753,25 @@ body.minimal .surface-tabs {
   flex-wrap: wrap;
 }
 .feed-btn {
-  background: #1c2230;
-  color: #c5c8c6;
-  border: 1px solid #2d3650;
+  background: var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   padding: 5px 14px;
   cursor: pointer;
   font: inherit;
 }
 .feed-btn:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .feed-btn.primary {
-  background: #5aa0ff;
-  border-color: #5aa0ff;
-  color: #0a0d13;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
   font-weight: 600;
 }
 .feed-btn.primary:hover {
-  background: #6fb0ff;
+  background: var(--accent-hover);
 }
 
 /* Flash the focused pane (Ctrl+Shift+H) to locate it. */
@@ -706,7 +781,7 @@ body.minimal .surface-tabs {
     box-shadow: none;
   }
   50% {
-    box-shadow: inset 0 0 0 2px var(--focus), 0 0 14px rgba(95, 249, 103, 0.65);
+    box-shadow: inset 0 0 0 2px var(--accent), 0 0 14px rgb(var(--accent-rgb) / 0.65);
   }
 }
 .pane.flash {
@@ -731,12 +806,12 @@ body.minimal .surface-tabs {
   gap: 4px;
   align-items: center;
   padding: 5px 6px;
-  background: #11151f;
-  border-bottom: 1px solid #1c2230;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
 }
 .browser-bar button {
-  background: #1c2230;
-  color: #c5c8c6;
+  background: var(--border);
+  color: var(--text);
   border: none;
   border-radius: 4px;
   width: 26px;
@@ -745,33 +820,33 @@ body.minimal .surface-tabs {
   cursor: pointer;
 }
 .browser-bar button:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 .browser-url {
   flex: 1 1 auto;
   height: 26px;
   padding: 0 8px;
   border-radius: 4px;
-  border: 1px solid #1c2230;
-  background: #0d1017;
-  color: #c5c8c6;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--ui-font);
   font-size: 12px;
   outline: none;
 }
 .browser-url:focus {
-  border-color: rgba(95, 249, 103, 0.4);
+  border-color: rgb(var(--accent-rgb) / 0.4);
 }
 .browser-bar button.close:hover {
-  background: #c0392b;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 /* The native webview floats over this element; keep it as a placeholder. */
 .browser-viewport {
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
-  background: #0d1017;
+  background: var(--bg);
 }
 
 /* Command palette + switcher overlay. */
@@ -782,8 +857,8 @@ body.minimal .surface-tabs {
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 2000;
+  background: var(--scrim);
+  z-index: var(--z-modal);
 }
 .palette-box {
   width: 560px;
@@ -791,18 +866,18 @@ body.minimal .surface-tabs {
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: #11151f;
-  border: 1px solid #2d3650;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 .palette-input {
   padding: 12px 14px;
-  background: #0d1017;
+  background: var(--bg);
   border: none;
-  border-bottom: 1px solid #1c2230;
-  color: #c5c8c6;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
   font: 14px var(--ui-font);
   outline: none;
 }
@@ -814,15 +889,15 @@ body.minimal .surface-tabs {
   justify-content: space-between;
   gap: 10px;
   padding: 9px 14px;
-  color: #c5c8c6;
+  color: var(--text);
   font: 13px var(--ui-font);
   cursor: pointer;
 }
 .palette-row.sel {
-  background: #1c2740;
+  background: var(--accent-bg);
 }
 .palette-hint {
-  color: #5a6172;
+  color: var(--text-faint);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -835,34 +910,34 @@ body.minimal .surface-tabs {
   display: flex;
   gap: 4px;
   align-items: center;
-  background: #11151f;
-  border: 1px solid #2d3650;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 4px;
-  z-index: 2000;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: var(--z-popover);
+  box-shadow: var(--shadow-popover);
 }
 .find-input {
   width: 180px;
   padding: 5px 8px;
-  background: #0d1017;
-  border: 1px solid #1c2230;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 5px;
-  color: #c5c8c6;
+  color: var(--text);
   font: 12px var(--ui-font);
   outline: none;
 }
 .find-btn {
-  background: #1c2230;
+  background: var(--border);
   border: none;
-  color: #c5c8c6;
+  color: var(--text);
   width: 24px;
   height: 24px;
   border-radius: 4px;
   cursor: pointer;
 }
 .find-btn:hover {
-  background: #2d3650;
+  background: var(--border-strong);
 }
 
 /* Agent lifecycle status dot (top-right of the pane). */
@@ -885,14 +960,14 @@ body.minimal .surface-tabs {
   pointer-events: none;
 }
 .pane-container.status-running::after {
-  background: #e3b341;
+  background: var(--warning);
   animation: status-pulse 1.2s ease-in-out infinite;
 }
 .pane-container.status-waiting::after {
-  background: #5aa0ff;
+  background: var(--accent);
 }
 .pane-container.status-error::after {
-  background: #c0392b;
+  background: var(--danger);
 }
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }

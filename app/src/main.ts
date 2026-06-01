@@ -731,7 +731,7 @@ class App {
     // each tick so in-place changes show. The JSON.stringify diff below prevents
     // re-render flicker; metaBusy prevents pile-up on a hung git/gh.
     this.metaBusy = true;
-    this.setMetaLoading(true); // green progress line while refreshing
+    this.setMetaLoading(true); // accent progress line while refreshing
     try {
       const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
         "repo_info",

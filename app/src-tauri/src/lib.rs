@@ -619,7 +619,7 @@ const DEFAULT_CONFIG: &str = r##"{
     "fontFamily": "Consolas, 'Cascadia Mono', monospace",
     "fontSize": 14,
     "scrollback": 10000,
-    "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5ff967" }
+    "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5aa0ff" }
   },
   "ui": {
     // Interface font (sidebar, tabs, menus). Not the terminal.
