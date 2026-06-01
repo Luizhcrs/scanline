@@ -167,6 +167,13 @@ export class BrowserPane implements PaneLike {
         .then(() => {
           this.created = true;
           this.creating = false;
+          // Disposed while the open was in flight? dispose() skipped
+          // browser_close (created was still false), so close now and don't
+          // start the poll — otherwise the native webview + 800ms interval leak.
+          if (this.disposed) {
+            void invoke("browser_close", { id: this.paneId }).catch(() => {});
+            return;
+          }
           // Force the next refit to re-apply bounds: a post-create set_position/
           // set_size is the composition nudge that makes WebView2 paint.
           this.lastRect = { x: -1, y: -1, w: -1, h: -1 };

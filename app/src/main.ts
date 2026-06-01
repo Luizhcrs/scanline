@@ -127,6 +127,8 @@ class App {
   private lastConfigJson = "";
   private nextWsId = 1;
   private sidebarVisible = true;
+  /** True while a DOM overlay is open (browsers hidden); see onOverlayChange. */
+  private overlayActive = false;
   private notifs: NotificationStore;
   private meta = new Map<
     number,
@@ -155,7 +157,10 @@ class App {
     this.installContextMenu();
     // Native browser webviews paint above all DOM overlays; hide them while any
     // overlay (settings, help, palette, menu, feed) is open, restore after.
+    // Track the state so a workspace switch mid-overlay keeps browsers hidden
+    // (selectWorkspace consults this), instead of desyncing.
     onOverlayChange((active) => {
+      this.overlayActive = active;
       if (!this.activeWs) return;
       this.activeLayout.setVisible(!active);
     });
@@ -167,6 +172,9 @@ class App {
     // Best-effort final save when the window closes (the 8s autosave covers
     // crashes / power loss).
     window.addEventListener("beforeunload", () => {
+      // Don't persist during the async boot window — serializeSession would
+      // write an empty workspace list and wipe the saved session.
+      if (this.workspaces.length === 0) return;
       void invoke("save_session", { json: JSON.stringify(this.serializeSession()) });
     });
     // Reapply scanline.json after an edit (e.g. returning from Notepad).
@@ -215,7 +223,8 @@ class App {
             if (w.title) ws.title = w.title;
             await ws.layout.loadTree(w.tree, leafFromSpecs);
           }
-          this.selectWorkspace(Math.min(data.active ?? 0, this.workspaces.length - 1));
+          const idx = Math.max(0, Math.min(data.active ?? 0, this.workspaces.length - 1));
+          this.selectWorkspace(idx);
           restored = true;
         }
       }
@@ -475,7 +484,9 @@ class App {
     }
     this.active = index;
     this.activeWs.grid.style.display = "";
-    this.activeWs.layout.setVisible(true);
+    // Keep browsers hidden if an overlay is open, so a switch mid-overlay
+    // doesn't paint the new workspace's webviews over it.
+    this.activeWs.layout.setVisible(!this.overlayActive);
     this.activeWs.layout.refitAll();
     this.activeWs.layout.focusedPane.focus();
     this.renderSidebar();
@@ -824,11 +835,17 @@ class App {
       this.toggleHelp();
       return true;
     }
-    const binds = { ...DEFAULT_BINDINGS, ...config().keybindings };
-    for (const name of Object.keys(actions)) {
-      if (binds[name]?.toLowerCase() === chord) {
-        actions[name]();
-        return true;
+    // Only match chords that carry a non-printable modifier (ctrl/alt/meta) or
+    // are a function key. Without this, a bare-key custom binding (e.g.
+    // "newTab": "j") would swallow that character in the terminal.
+    const safeChord = e.ctrlKey || e.altKey || e.metaKey || /^f\d{1,2}$/.test(key);
+    if (safeChord) {
+      const binds = { ...DEFAULT_BINDINGS, ...config().keybindings };
+      for (const name of Object.keys(actions)) {
+        if (binds[name]?.toLowerCase() === chord) {
+          actions[name]();
+          return true;
+        }
       }
     }
 
@@ -837,23 +854,9 @@ class App {
       return s.kind === "terminal" ? (s as Pane) : null;
     };
 
-    // Command palette (Ctrl+Shift+P), switcher (Ctrl+P), find (Ctrl+F)
-    if (e.ctrlKey && e.shiftKey && key === "p") {
-      this.openCommands();
-      return true;
-    }
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "p") {
-      this.openSwitcher();
-      return true;
-    }
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "f") {
-      this.openFind();
-      return true;
-    }
-    if (e.ctrlKey && e.shiftKey && key === "f") {
-      this.openFindInDir();
-      return true;
-    }
+    // Palette/switcher/find/findInDir/newWorkspace/newTab/settings/minimal/
+    // fullscreen are handled by the rebindable-actions table above; only the
+    // fixed (non-rebindable) shortcuts remain below.
     if (e.altKey && e.shiftKey && key === "d") {
       layout.splitWithNew();
       return true;
@@ -870,11 +873,7 @@ class App {
       layout.splitFocused(newBrowserLeaf());
       return true;
     }
-    // New workspace (Ctrl+N), toggle sidebar (Ctrl+B)
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "n") {
-      this.newWorkspace();
-      return true;
-    }
+    // Toggle sidebar (Ctrl+B)
     if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "b") {
       this.toggleSidebar();
       return true;
@@ -894,11 +893,7 @@ class App {
       layout.focusedPane.closeActiveSurface?.();
       return true;
     }
-    // Surface tabs
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "t") {
-      layout.focusedPane.newTerminalTab?.();
-      return true;
-    }
+    // Surface tabs (newTab handled by the actions table)
     if (e.ctrlKey && e.key === "Tab") {
       if (e.shiftKey) layout.focusedPane.prevSurface?.();
       else layout.focusedPane.nextSurface?.();
@@ -909,19 +904,7 @@ class App {
       layout.focusedPane.selectSurface?.(n === 9 ? 999 : n - 1);
       return true;
     }
-    // Settings + window
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === ",") {
-      this.settings.open();
-      return true;
-    }
-    if (e.ctrlKey && e.shiftKey && key === "m") {
-      this.toggleMinimal();
-      return true;
-    }
-    if (key === "f11") {
-      void this.toggleFullscreen();
-      return true;
-    }
+    // Settings/minimal/fullscreen handled by the actions table.
     // Notifications
     if (e.altKey && e.shiftKey && key === "n") {
       this.notifs.togglePanel();

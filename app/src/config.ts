@@ -38,11 +38,37 @@ export function config(): ScanlineConfig {
   return current;
 }
 
-/** Strip // line and /* *​/ block comments so JSONC parses as JSON. */
+/** Strip // line and block comments so JSONC parses as JSON. String-aware: a
+ *  `//` or `/*` inside a JSON string value is left intact (a regex strip would
+ *  corrupt e.g. "//cdn/x" or "a//b", breaking the whole parse). */
 function stripJsonc(s: string): string {
-  return s
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  let out = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      out += c;
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      out += c;
+    } else if (c === "/" && s[i + 1] === "/") {
+      while (i < s.length && s[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && s[i + 1] === "*") {
+      i += 2;
+      while (i < s.length && !(s[i] === "*" && s[i + 1] === "/")) i++;
+      i++; // skip the closing '/'
+    } else {
+      out += c;
+    }
+  }
+  return out;
 }
 
 /** Deep-merge a partial config over the defaults (objects merged, scalars set). */
@@ -50,6 +76,8 @@ function merge(base: any, over: any): any {
   if (over == null || typeof over !== "object") return base;
   const out: any = Array.isArray(base) ? [...base] : { ...base };
   for (const k of Object.keys(over)) {
+    // Never let user JSON walk the prototype chain.
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     const b = base?.[k];
     const o = over[k];
     out[k] = b && typeof b === "object" && o && typeof o === "object" ? merge(b, o) : o;

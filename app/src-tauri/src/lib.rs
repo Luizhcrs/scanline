@@ -336,18 +336,30 @@ fn session_path() -> Option<std::path::PathBuf> {
     Some(std::path::Path::new(&base).join("scanline").join("session.json"))
 }
 
+static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Atomic write: serialize to a PER-WRITE-UNIQUE temp sibling then rename over
+/// the target. The pid+seq suffix prevents two concurrent writers (e.g. the
+/// beforeunload save racing the 8s autosave) from clobbering one shared temp
+/// and corrupting/leaving it behind. The loser's temp is cleaned up on failure.
+fn atomic_write(path: &std::path::Path, data: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::SeqCst);
+    let tmp = path.with_extension(format!("{}.{}.tmp", std::process::id(), seq));
+    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
 /// Persist the serialized workspace/layout tree to disk (atomic write).
 #[tauri::command]
 fn save_session(json: String) -> Result<(), String> {
     let path = session_path().ok_or("no APPDATA")?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    // Write to a temp sibling then rename, so a crash mid-write never leaves a
-    // truncated session file that would fail to parse on next boot.
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    atomic_write(&path, &json)
 }
 
 /// Load the persisted session JSON, or null if none exists.
@@ -403,12 +415,7 @@ fn load_config() -> Result<Option<String>, String> {
 #[tauri::command]
 fn save_config(json: String) -> Result<(), String> {
     let path = config_path().ok_or("no APPDATA")?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    atomic_write(&path, &json)
 }
 
 /// Open scanline.json in Notepad, writing a commented default first if missing.
@@ -1006,8 +1013,8 @@ fn apply_dark_titlebar(window: &tauri::WebviewWindow) {
                 &dark as *const _ as *const core::ffi::c_void,
                 std::mem::size_of::<u32>() as u32,
             );
-            // COLORREF is 0x00BBGGRR; app background #0d1017.
-            let color: u32 = 0x0017_100d;
+            // COLORREF is 0x00BBGGRR; match the sidebar #0a0d13.
+            let color: u32 = 0x0013_0d0a;
             let _ = DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_CAPTION_COLOR,

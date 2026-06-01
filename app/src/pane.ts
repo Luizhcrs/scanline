@@ -234,6 +234,13 @@ export class Pane implements PaneLike {
     });
     this.unlisteners.push(dataUn, exitUn);
 
+    // Disposed during the awaits above (e.g. session restore disposes the
+    // placeholder pane before its pty_spawn fires)? Don't spawn — otherwise the
+    // backend gets a pty_close (no-op, nothing spawned yet) then this spawn
+    // creates an orphaned ConPTY no listener owns. One orphan per workspace per
+    // boot otherwise.
+    if (this.disposed) return;
+
     await invoke("pty_spawn", {
       id,
       rows: this.term.rows,
