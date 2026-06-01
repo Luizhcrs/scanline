@@ -1088,6 +1088,46 @@ fn start_control_server(app: AppHandle) {
 #[cfg(not(windows))]
 fn start_control_server(_app: AppHandle) {}
 
+/// Best-effort install of Claude Code hooks on launch so agent status dots and
+/// notifications work without the user running `scanline hooks setup` by hand.
+/// Idempotent (the CLI dedups its hook entries). Silently no-ops if the bundled
+/// scanline CLI can't be located. Runs detached with no console window.
+#[cfg(windows)]
+fn setup_agent_hooks() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let Some(cli) = locate_scanline_cli() else {
+        return;
+    };
+    let _ = std::process::Command::new(cli)
+        .args(["hooks", "setup"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+/// Resolve the scanline CLI: a sibling of the app binary (shipped layout), else
+/// `<repo>/cli/scanline.exe` walking up the dev tree.
+#[cfg(windows)]
+fn locate_scanline_cli() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    if let Some(dir) = exe.parent() {
+        let sib = dir.join("scanline.exe");
+        if sib.exists() {
+            return Some(sib);
+        }
+    }
+    for anc in exe.ancestors() {
+        let cand = anc.join("cli").join("scanline.exe");
+        if cand.exists() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Recolor the native title bar to match the app (dark) instead of the user's
 /// Windows accent color, and use light caption text. Keeps the native frame,
@@ -1154,8 +1194,11 @@ pub fn run() {
         .setup(|app| {
             start_control_server(app.handle().clone());
             #[cfg(windows)]
-            if let Some(win) = app.get_webview_window("main") {
-                apply_dark_titlebar(&win);
+            {
+                if let Some(win) = app.get_webview_window("main") {
+                    apply_dark_titlebar(&win);
+                }
+                setup_agent_hooks();
             }
             Ok(())
         })

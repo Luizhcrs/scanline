@@ -6,7 +6,32 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// isScanlineHook reports whether a Claude Code hook-array entry was installed by
+// scanline (so setup can replace it instead of duplicating it).
+func isScanlineHook(e any) bool {
+	em, ok := e.(map[string]any)
+	if !ok {
+		return false
+	}
+	inner, ok := em["hooks"].([]any)
+	if !ok {
+		return false
+	}
+	for _, h := range inner {
+		hm, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		c, _ := hm["command"].(string)
+		if strings.Contains(c, "hooks claude ") && strings.Contains(strings.ToLower(c), "scanline") {
+			return true
+		}
+	}
+	return false
+}
 
 // runHooks handles `scanline hooks ...`:
 //
@@ -84,7 +109,13 @@ func setupHooks(args []string) {
 
 	settings := map[string]any{}
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &settings)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			// Never clobber an existing settings.json we can't parse — that would
+			// wipe the user's Claude config. Bail and let them fix it (or run with
+			// a valid file). Especially important since this runs on every launch.
+			fmt.Fprintf(os.Stderr, "scanline: %s is not valid JSON, leaving it untouched (%v)\n", path, err)
+			os.Exit(1)
+		}
 	}
 
 	hooks, _ := settings["hooks"].(map[string]any)
@@ -96,30 +127,35 @@ func setupHooks(args []string) {
 		entry := map[string]any{
 			"hooks": []any{map[string]any{"type": "command", "command": cmd}},
 		}
+		// Tool events match against a tool-name pattern; "*" = all tools. The
+		// other events (Stop/Notification/UserPromptSubmit) take no matcher.
+		if event == "PreToolUse" || event == "PostToolUse" {
+			entry["matcher"] = "*"
+		}
+		// Drop any prior scanline-owned entry (including one pointing at an old
+		// exe path after a reinstall/move) and re-add the current one. Comparing
+		// the exact command string instead would accumulate stale duplicates.
 		arr, _ := hooks[event].([]any)
-		// Skip if a scanline hook for this event is already present.
-		dup := false
+		kept := make([]any, 0, len(arr))
 		for _, e := range arr {
-			if em, ok := e.(map[string]any); ok {
-				if inner, ok := em["hooks"].([]any); ok {
-					for _, h := range inner {
-						if hm, ok := h.(map[string]any); ok {
-							if c, _ := hm["command"].(string); c == cmd {
-								dup = true
-							}
-						}
-					}
-				}
+			if !isScanlineHook(e) {
+				kept = append(kept, e)
 			}
 		}
-		if !dup {
-			hooks[event] = append(arr, entry)
-		}
+		hooks[event] = append(kept, entry)
 	}
 	settings["hooks"] = hooks
 
 	out, _ := json.MarshalIndent(settings, "", "  ")
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	// Atomic write: temp in the same dir + rename, so an interrupted launch never
+	// leaves a half-written (corrupt) global settings.json.
+	tmp := path + fmt.Sprintf(".scanline.%d.tmp", os.Getpid())
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "scanline:", err)
+		os.Exit(1)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		fmt.Fprintln(os.Stderr, "scanline:", err)
 		os.Exit(1)
 	}
