@@ -190,6 +190,13 @@ fn pty_spawn(
             };
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
             let _ = app2.emit(&data_event, encoded);
+            // Pace emits so a firehose can't fire hundreds of events back-to-back
+            // — each one is a synchronous base64-decode on the frontend's UI
+            // thread, and unpaced they starve clicks. ~8ms => <=64KB/8ms (~8MB/s),
+            // smooth output while leaving the UI thread time to handle input.
+            // Excess output coalesces in the (capped) buffer; on a true firehose
+            // older bytes drop, which is fine for unreadable scroll.
+            thread::sleep(std::time::Duration::from_millis(8));
         }
         let _ = app2.emit(&exit_event, ());
     });
