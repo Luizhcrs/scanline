@@ -57,10 +57,16 @@ func runHooks(args []string) {
 		_ = json.Unmarshal(data, &payload)
 	}
 	surf := envSurface()
+	// The hooks are installed globally in ~/.claude/settings.json, so they also
+	// fire for Claude sessions running OUTSIDE Scanline (a plain terminal, CI,
+	// another tool). Those have no SCANLINE_SURFACE_ID. Do nothing then —
+	// targeting the focused pane would light up / notify the wrong pane (and
+	// strand its status dot, since the matching Stop lands elsewhere).
+	if surf == nil {
+		os.Exit(0)
+	}
 	withSurface := func(m map[string]any) map[string]any {
-		if surf != nil {
-			m["surface"] = surf
-		}
+		m["surface"] = surf
 		return m
 	}
 
