@@ -3,6 +3,7 @@ node_modules/
 app/dist/
 
 # Rust / Tauri
+target/
 app/src-tauri/target/
 app/src-tauri/gen/schemas/
 
