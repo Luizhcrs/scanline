@@ -70,6 +70,14 @@ export class Layout {
   }
 
   get focusedPane(): PaneLike {
+    // Self-heal: if focus drifted off the current tree (a stale ref left by a
+    // restore/close edge), re-anchor to a real leaf. Otherwise layout ops
+    // (split/focus/close) silently no-op against a pane not in the tree and the
+    // grid appears "stuck".
+    if (this.root && !this.findLeaf(this.root, this.focused)) {
+      const f = this.firstLeaf(this.root);
+      if (f) this.setFocus(f);
+    }
     return this.focused;
   }
 
@@ -249,8 +257,10 @@ export class Layout {
    */
   splitFocused(newPane: PaneLike, dir?: Dir): void {
     this.adopt(newPane);
-    const chosen = dir ?? this.autoDir(this.focused);
-    const leaf = this.findLeaf(this.root, this.focused);
+    // Read through focusedPane so a stale focus self-heals before we split.
+    const target = this.focusedPane;
+    const chosen = dir ?? this.autoDir(target);
+    const leaf = this.findLeaf(this.root, target);
     if (!leaf) return;
     const replacement: SplitNode = {
       kind: "split",
@@ -271,10 +281,18 @@ export class Layout {
     if (this.zoomed === pane) this.zoomed = null;
     this.root = this.removeLeaf(this.root, pane)!;
     this.onPaneClosed?.(pane.paneId);
-    await pane.dispose();
     this.render();
-    const next = this.firstLeaf(sibling);
-    if (next) this.setFocus(next);
+    // Move focus to a surviving leaf BEFORE disposing the closed pane. setFocus
+    // blurs the previously-focused pane; if that pane is already disposed it has
+    // no active surface to blur and throws, which would abort closePane and
+    // strand focus off-tree (grid then "stuck" — splits silently no-op).
+    const next = this.firstLeaf(this.root);
+    if (next && next !== pane) this.setFocus(next);
+    try {
+      await pane.dispose();
+    } catch (e) {
+      console.error("pane dispose failed", e);
+    }
   }
 
   closeFocused(): void {

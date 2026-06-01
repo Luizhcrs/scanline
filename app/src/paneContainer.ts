@@ -99,14 +99,14 @@ export class PaneContainer implements PaneLike {
 
   focus(): void {
     this.el.classList.add("focused");
-    this.activeSurface.focus();
+    this.activeSurface?.focus();
   }
   blur(): void {
     this.el.classList.remove("focused");
-    this.activeSurface.blur();
+    this.activeSurface?.blur();
   }
   refit(): void {
-    this.activeSurface.refit();
+    this.activeSurface?.refit();
   }
   setVisible(visible: boolean): void {
     // Whole container shown/hidden (e.g. grid zoom): only the active surface
