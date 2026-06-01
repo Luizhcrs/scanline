@@ -253,6 +253,184 @@ export class BrowserPane implements PaneLike {
       if (this.disposed) un();
       else this.urlUnlisten = un;
     });
+    this.startDialogListener();
+  }
+
+  // ---- Script-dialog interception ----
+  //
+  // The Rust backend intercepts WebView2's ScriptDialogOpening event and emits
+  // browser://<id>/dialog instead of showing the blocking native modal. We render
+  // a small overlay card absolutely positioned over THIS pane's viewport so it
+  // does not cover other panes. Only one overlay per pane at a time — a second
+  // dialog while one is shown replaces the first (the first deferral is already
+  // pending on the Rust side; the user must reply to clear it).
+  private dialogUnlisten?: UnlistenFn;
+  private dialogOverlay?: HTMLElement;
+
+  private startDialogListener(): void {
+    if (this.dialogUnlisten) return;
+    void listen<{
+      req: number;
+      kind: "alert" | "confirm" | "prompt" | "beforeunload";
+      message: string;
+      defaultText: string;
+    }>(`browser://${this.paneId}/dialog`, (e) => {
+      if (this.disposed) return;
+      this.showDialogOverlay(e.payload);
+    }).then((un) => {
+      if (this.disposed) un();
+      else this.dialogUnlisten = un;
+    });
+  }
+
+  private showDialogOverlay(payload: {
+    req: number;
+    kind: "alert" | "confirm" | "prompt" | "beforeunload";
+    message: string;
+    defaultText: string;
+  }): void {
+    // Remove any existing overlay — one dialog at a time per pane.
+    this.dialogOverlay?.remove();
+    this.dialogOverlay = undefined;
+
+    const { req, kind, message, defaultText } = payload;
+    const paneId = this.paneId;
+
+    // reply sends the result to the Rust backend and tears down the overlay.
+    const reply = (accept: boolean, text?: string) => {
+      overlay.remove();
+      if (this.dialogOverlay === overlay) this.dialogOverlay = undefined;
+      void invoke("browser_dialog_reply", {
+        paneId,
+        req,
+        accept,
+        text: text ?? null,
+      }).catch(() => {});
+    };
+
+    const overlay = document.createElement("div");
+    overlay.style.cssText = [
+      "position:absolute",
+      "inset:0",
+      "display:flex",
+      "align-items:center",
+      "justify-content:center",
+      // Scrim dims only this pane, not the whole app.
+      "background:var(--scrim,rgba(0,0,0,0.45))",
+      "z-index:9999",
+    ].join(";");
+
+    const card = document.createElement("div");
+    card.style.cssText = [
+      "background:var(--bg-elev,#1e1e1e)",
+      "border:1px solid var(--border,#444)",
+      "color:var(--text,#e0e0e0)",
+      "border-radius:6px",
+      "padding:16px 20px",
+      "max-width:360px",
+      "width:90%",
+      "display:flex",
+      "flex-direction:column",
+      "gap:10px",
+      "font-size:13px",
+      "box-shadow:0 4px 24px rgba(0,0,0,0.6)",
+    ].join(";");
+
+    // Kind label
+    const kindLabel = document.createElement("div");
+    kindLabel.textContent =
+      kind === "beforeunload" ? "Leave page?" : kind.charAt(0).toUpperCase() + kind.slice(1);
+    kindLabel.style.cssText = "font-weight:600;font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em";
+
+    // Message text
+    const msgEl = document.createElement("div");
+    msgEl.textContent = message;
+    msgEl.style.cssText = "white-space:pre-wrap;word-break:break-word;line-height:1.5";
+
+    card.append(kindLabel, msgEl);
+
+    // Prompt input
+    let inputEl: HTMLInputElement | undefined;
+    if (kind === "prompt") {
+      inputEl = document.createElement("input");
+      inputEl.type = "text";
+      inputEl.value = defaultText;
+      inputEl.style.cssText = [
+        "background:var(--bg-base,#121212)",
+        "border:1px solid var(--border,#444)",
+        "color:var(--text,#e0e0e0)",
+        "border-radius:4px",
+        "padding:6px 8px",
+        "font-size:13px",
+        "outline:none",
+        "width:100%",
+        "box-sizing:border-box",
+      ].join(";");
+      card.append(inputEl);
+    }
+
+    // Buttons row
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px";
+
+    const mkBtn = (label: string, primary: boolean, handler: () => void) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.style.cssText = [
+        "border:1px solid var(--border,#444)",
+        "border-radius:4px",
+        "padding:5px 14px",
+        "font-size:12px",
+        "cursor:pointer",
+        primary
+          ? "background:var(--accent,#0078d4);color:#fff;border-color:transparent"
+          : "background:var(--bg-base,#121212);color:var(--text,#e0e0e0)",
+      ].join(";");
+      b.onclick = handler;
+      return b;
+    };
+
+    if (kind === "confirm" || kind === "beforeunload" || kind === "prompt") {
+      const cancelLabel = kind === "beforeunload" ? "Stay" : "Cancel";
+      btnRow.append(mkBtn(cancelLabel, false, () => reply(false)));
+    }
+
+    const okLabel = kind === "beforeunload" ? "Leave" : "OK";
+    btnRow.append(
+      mkBtn(okLabel, true, () => {
+        reply(true, inputEl?.value);
+      }),
+    );
+
+    card.append(btnRow);
+    overlay.append(card);
+
+    // Keyboard handling: Enter = OK, Esc = Cancel (same as native dialogs).
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        reply(true, inputEl?.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        reply(false);
+      }
+    });
+
+    // The viewport is position:relative so absolute children stay within it.
+    this.viewport.style.position = "relative";
+    this.viewport.append(overlay);
+    this.dialogOverlay = overlay;
+
+    // Focus the input (prompt) or the OK button so keyboard works immediately.
+    requestAnimationFrame(() => {
+      if (inputEl) {
+        inputEl.focus();
+        inputEl.select();
+      } else {
+        const ok = btnRow.lastElementChild as HTMLButtonElement | null;
+        ok?.focus();
+      }
+    });
   }
 
   focus(): void {
@@ -270,6 +448,9 @@ export class BrowserPane implements PaneLike {
     this.disposed = true;
     this.resizeObserver?.disconnect();
     this.urlUnlisten?.();
+    this.dialogUnlisten?.();
+    this.dialogOverlay?.remove();
+    this.dialogOverlay = undefined;
     if (this.created) {
       await invoke("browser_close", { id: this.paneId }).catch(() => {});
     }

@@ -174,6 +174,49 @@ impl Default for FrontendReady {
 /// trace because the freeze is on the native message pump, not a Rust panic.
 static LAST_MAIN_TICK: AtomicU64 = AtomicU64::new(0);
 
+// ---- Script-dialog interception (non-blocking) ----
+//
+// A JS alert/confirm/prompt/beforeunload on a browser-pane child WebView2
+// normally shows WebView2's DEFAULT MODAL dialog, which blocks the shared Win32
+// message pump for up to 60 s until the OS kills the app (confirmed in
+// scanline.log: "stall: main/UI thread unresponsive" growing 4s -> 60s with no
+// Rust op running — the freeze is entirely inside WebView2's native dialog).
+//
+// The fix: register add_ScriptDialogOpening. Merely registering this handler
+// SUPPRESSES WebView2's default blocking dialog. We then take a Deferral, which
+// suspends ONLY that browser page without blocking the host UI thread at all.
+// The terminal panes and the rest of the app stay fully responsive; only the one
+// browser page waits until the user clicks OK/Cancel in the Scanline-styled
+// overlay the frontend renders over that pane.
+//
+// Thread model: ScriptDialogOpening fires on the MAIN (event-loop) thread. The
+// COM objects (args, deferral) are NOT Send/Sync, so they cannot cross thread
+// boundaries. We store them in a thread_local! map on the main thread and share
+// only the plain u64 request id (which is Send-safe via AtomicU64).
+// browser_dialog_reply dispatches to the main thread to retrieve and complete.
+
+/// Monotonically-increasing dialog request counter. Only the id crosses threads.
+#[cfg(windows)]
+static DIALOG_SEQ: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(windows)]
+struct PendingDialog {
+    args: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2ScriptDialogOpeningEventArgs,
+    deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+}
+
+// Safety: PendingDialog is only ever accessed from the main thread (inserted and
+// removed inside run_on_main_thread closures). The thread_local! ensures there
+// is no concurrent access across threads.
+#[cfg(windows)]
+unsafe impl Send for PendingDialog {}
+
+#[cfg(windows)]
+thread_local! {
+    static PENDING_DIALOGS: std::cell::RefCell<HashMap<u64, PendingDialog>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1052,7 +1095,105 @@ async fn browser_open(
         let mut epochs = browsers.nav_epochs.lock().unwrap_or_else(|e| e.into_inner());
         epochs.insert(id, nav_epoch);
     }
-    lock_views(&browsers).insert(id, webview);
+    lock_views(&browsers).insert(id, webview.clone());
+
+    // Register the ScriptDialogOpening handler on the newly-created webview so
+    // that JS alert/confirm/prompt/beforeunload never shows WebView2's default
+    // blocking modal. The handler runs on the main thread (same thread that fires
+    // the event), stores the deferral in the thread_local, and emits an event to
+    // the frontend overlay. See the long comment near PENDING_DIALOGS.
+    #[cfg(windows)]
+    {
+        let dialog_app = app.clone();
+        // with_webview closure returns () — use an inner IIFE to get ? propagation.
+        let _ = webview.with_webview(move |pw| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT,
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM,
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD,
+            };
+            use webview2_com::ScriptDialogOpeningEventHandler;
+            use windows::core::PWSTR;
+
+            let handler = ScriptDialogOpeningEventHandler::create(Box::new(move |_sender, args| {
+                // args is Option<ICoreWebView2ScriptDialogOpeningEventArgs>
+                let args = match args {
+                    Some(a) => a,
+                    None => return Ok(()),
+                };
+
+                // Read dialog fields. PWSTR out-params are CoTaskMem-allocated;
+                // take_pwstr transfers ownership into a String and frees the buffer.
+                let (uri, kind_raw, msg, default_text) = unsafe {
+                    let mut uri_p = PWSTR::null();
+                    let _ = args.Uri(&mut uri_p);
+                    let uri = webview2_com::take_pwstr(uri_p);
+
+                    let mut kind_val = Default::default();
+                    let _ = args.Kind(&mut kind_val);
+
+                    let mut msg_p = PWSTR::null();
+                    let _ = args.Message(&mut msg_p);
+                    let msg = webview2_com::take_pwstr(msg_p);
+
+                    let mut dt_p = PWSTR::null();
+                    let _ = args.DefaultText(&mut dt_p);
+                    let default_text = webview2_com::take_pwstr(dt_p);
+
+                    (uri, kind_val, msg, default_text)
+                };
+
+                let kind_str = match kind_raw {
+                    k if k == COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT       => "alert",
+                    k if k == COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM      => "confirm",
+                    k if k == COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT       => "prompt",
+                    k if k == COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD => "beforeunload",
+                    _                                                        => "alert",
+                };
+
+                // GetDeferral suspends the page and suppresses WebView2's default
+                // blocking dialog — both effects come from this single call.
+                // Do this BEFORE emitting to the frontend so the page never gets
+                // a chance to show its native modal (the suppression is immediate).
+                let deferral = unsafe { args.GetDeferral()? };
+
+                let req = DIALOG_SEQ.fetch_add(1, Ordering::Relaxed);
+                PENDING_DIALOGS.with(|m| {
+                    m.borrow_mut().insert(req, PendingDialog { args, deferral });
+                });
+
+                log_info!("browser", "dialog kind={} pane={} uri={}", kind_str, id, uri);
+
+                let _ = dialog_app.emit(
+                    &format!("browser://{id}/dialog"),
+                    serde_json::json!({
+                        "req": req,
+                        "kind": kind_str,
+                        "message": msg,
+                        "defaultText": default_text,
+                    }),
+                );
+
+                Ok(())
+            }));
+
+            // IIFE lets us use ? for early-return on COM failure without making
+            // the outer with_webview closure return Result (it must return ()).
+            let result = (|| -> windows::core::Result<()> {
+                unsafe {
+                    let core = pw.controller().CoreWebView2()?;
+                    let mut token = Default::default();
+                    core.add_ScriptDialogOpening(&handler, &mut token)?;
+                }
+                Ok(())
+            })();
+            if let Err(e) = result {
+                log_warn!("browser", "add_ScriptDialogOpening failed pane={}: {:?}", id, e);
+            }
+        });
+    }
+
     Ok(())
 }
 
@@ -1174,6 +1315,61 @@ fn browser_devtools(browsers: State<BrowserManager>, id: u32) -> Result<(), Stri
 #[tauri::command]
 fn browser_devtools(_browsers: State<BrowserManager>, _id: u32) -> Result<(), String> {
     Err("devtools only on Windows".into())
+}
+
+// ---- Script-dialog reply command ----
+//
+// The frontend sends this after the user clicks OK or Cancel in the
+// Scanline-styled dialog overlay. We retrieve the pending deferral from the
+// thread_local on the main thread, apply the result fields, and call Complete()
+// to unblock the page. Always Complete — never leave a deferral dangling.
+
+#[cfg(windows)]
+#[tauri::command]
+fn browser_dialog_reply(
+    app: AppHandle,
+    pane_id: u32,
+    req: u64,
+    accept: bool,
+    text: Option<String>,
+) -> Result<(), String> {
+    // Dispatch to the main thread: that is where PENDING_DIALOGS lives and
+    // where the COM objects (args/deferral) are valid.
+    app.run_on_main_thread(move || {
+        let _ = pane_id; // used only for future logging; keep for API symmetry
+        let pd = PENDING_DIALOGS.with(|m| m.borrow_mut().remove(&req));
+        if let Some(pd) = pd {
+            unsafe {
+                if accept {
+                    // Accept() is the zero-arg "click OK" method on the args
+                    // object. NOT calling it means the browser treats it as Cancel.
+                    let _ = pd.args.Accept();
+                }
+                if let Some(t) = text {
+                    // SetResultText sets the prompt() return value.
+                    // PCWSTR is a Copy type — pass by value, not by reference.
+                    let h = windows::core::HSTRING::from(t);
+                    let _ = pd.args.SetResultText(windows::core::PCWSTR(h.as_ptr()));
+                }
+                // Always complete the deferral so the page is never left hung,
+                // even on cancel (accept=false).
+                let _ = pd.deferral.Complete();
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn browser_dialog_reply(
+    _app: AppHandle,
+    _pane_id: u32,
+    _req: u64,
+    _accept: bool,
+    _text: Option<String>,
+) -> Result<(), String> {
+    Ok(())
 }
 
 // ---- Spike 1: WebView2 DevTools Protocol bridge ----
@@ -1683,6 +1879,7 @@ pub fn run() {
             browser_close,
             browser_devtools,
             browser_cdp,
+            browser_dialog_reply,
             control_reply,
             control_frontend_ready,
             repo_info,
