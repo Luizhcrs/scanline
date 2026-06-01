@@ -27,6 +27,7 @@ serde_json = "1"
 portable-pty = "0.9.0"
 tokio = { version = "1", features = ["sync", "net", "io-util", "rt", "time"] }
 tauri-plugin-notification = "2.3.3"
+base64 = "0.22"
 
 # Windows-only: direct access to the WebView2 COM API so we can drive the
 # DevTools Protocol (CallDevToolsProtocolMethodAsync) for the scriptable

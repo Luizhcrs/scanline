@@ -182,8 +182,13 @@ export class Pane implements PaneLike {
     // spawn command — so the shell's first prompt can't outrun the listener.
     const id = (this.ptyId = nextPtyId++);
 
-    const dataUn = await listen<number[]>(`pty://${id}/data`, (e) => {
-      if (!this.disposed) this.term.write(new Uint8Array(e.payload));
+    const dataUn = await listen<string>(`pty://${id}/data`, (e) => {
+      if (this.disposed) return;
+      // Backend sends base64 (smaller + cheaper than a JSON number array).
+      const bin = atob(e.payload);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      this.term.write(bytes);
     });
     const exitUn = await listen(`pty://${id}/exit`, () => {
       if (this.disposed) return;

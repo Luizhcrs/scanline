@@ -6,7 +6,8 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -108,22 +109,49 @@ fn pty_spawn(
         },
     );
 
-    // Reader thread: pump ConPTY output to the frontend until EOF. Emits to a
-    // per-pty event (`pty://{id}/data`) so each pane listens only to its own
-    // stream instead of every pane filtering one global firehose.
-    let app2 = app.clone();
+    // Output pump. Two parts so a high-rate ("firehose") shell doesn't flood the
+    // IPC bridge:
+    //  - reader thread: blocking reads append into a shared buffer.
+    //  - flusher thread: ~every 8ms drains the buffer and emits ONE event with
+    //    the bytes base64-encoded. base64 (~1.33x) is far smaller and cheaper to
+    //    parse than Tauri's default Vec<u8> -> JSON number-array (~4-6x).
+    // The frontend base64-decodes and writes to xterm.
     let data_event = format!("pty://{id}/data");
     let exit_event = format!("pty://{id}/exit");
+    let buffer: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let rbuf = buffer.clone();
+    let rdone = done.clone();
     thread::spawn(move || {
-        let mut buf = [0u8; 8192];
+        let mut tmp = [0u8; 8192];
         loop {
-            match reader.read(&mut buf) {
+            match reader.read(&mut tmp) {
                 Ok(0) => break,
-                Ok(n) => {
-                    let _ = app2.emit(&data_event, buf[..n].to_vec());
-                }
+                Ok(n) => rbuf.lock().unwrap().extend_from_slice(&tmp[..n]),
                 Err(_) => break,
             }
+        }
+        rdone.store(true, Ordering::SeqCst);
+    });
+
+    let app2 = app.clone();
+    thread::spawn(move || {
+        use base64::Engine;
+        loop {
+            thread::sleep(std::time::Duration::from_millis(8));
+            let chunk = {
+                let mut b = buffer.lock().unwrap();
+                if b.is_empty() {
+                    if done.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    continue;
+                }
+                std::mem::take(&mut *b)
+            };
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
+            let _ = app2.emit(&data_event, encoded);
         }
         let _ = app2.emit(&exit_event, ());
     });
