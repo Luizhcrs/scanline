@@ -424,7 +424,20 @@ class App {
   private showPaneMenu(x: number, y: number, container: PaneLike): void {
     const L = this.activeLayout;
     const c = container as PaneContainer;
-    const items: MenuItem[] = [
+    const items: MenuItem[] = [];
+    const surf = c.activeSurface;
+    if (surf?.kind === "terminal") {
+      const t = surf as Pane;
+      if (t.hasSelection()) {
+        items.push({ label: "Copy", hint: "Ctrl+Shift+C", action: () => void t.copySelection() });
+      }
+      items.push(
+        { label: "Paste", hint: "Ctrl+Shift+V", action: () => void t.paste() },
+        { label: "Select All", hint: "Ctrl+Shift+A", action: () => t.selectAll() },
+        { separator: true },
+      );
+    }
+    items.push(
       { label: "Rename Tab", action: () => c.startRenameActive() },
       { label: "New Tab", hint: "Ctrl+T", action: () => c.newTerminalTab() },
       { separator: true },
@@ -434,7 +447,7 @@ class App {
       { separator: true },
       { label: "Close Tab", action: () => c.closeActiveSurface() },
       { label: "Close Pane", danger: true, action: () => void L.closePane(container) },
-    ];
+    );
     this.menu.show(x, y, items);
   }
 

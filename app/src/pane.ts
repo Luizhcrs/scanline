@@ -316,6 +316,10 @@ export class Pane implements PaneLike {
     invoke("pty_write", { id: this.ptyId, data: Array.from(new TextEncoder().encode(text)) });
   }
 
+  hasSelection(): boolean {
+    return this.term.hasSelection();
+  }
+
   async copySelection(): Promise<void> {
     const sel = this.term.getSelection();
     if (!sel) return;
