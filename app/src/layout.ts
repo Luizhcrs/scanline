@@ -47,11 +47,15 @@ export class Layout {
     const a = this.leafOf(this.root, aId);
     const b = this.leafOf(this.root, bId);
     if (!a || !b) return;
+    // Only move focus if the currently-focused pane was one of the two swapped
+    // slots — a reposition gesture must not yank focus from a third pane (C)
+    // the user is actively typing in. Mirror closePane discipline.
+    const wasFocused = this.focused === a.pane || this.focused === b.pane;
     const tmp = a.pane;
     a.pane = b.pane;
     b.pane = tmp;
     this.render();
-    this.setFocus(b.pane);
+    if (wasFocused) this.setFocus(this.focused);
   }
 
   private leafOf(node: Node, id: number): LeafNode | null {

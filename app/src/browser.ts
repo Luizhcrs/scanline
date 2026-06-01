@@ -188,7 +188,10 @@ export class BrowserPane implements PaneLike {
       if (this.creating) return; // open in flight — don't double-create
       this.creating = true;
       this.lastRect = next;
-      invoke("browser_open", { id: this.paneId, url: this.pendingUrl, ...next })
+      // Capture the URL we're opening so we can detect a navigate() that
+      // arrived while the open was in flight and flush it after creation.
+      const openedUrl = this.pendingUrl;
+      invoke("browser_open", { id: this.paneId, url: openedUrl, ...next })
         .then(() => {
           this.created = true;
           this.creating = false;
@@ -198,6 +201,11 @@ export class BrowserPane implements PaneLike {
           if (this.disposed) {
             void invoke("browser_close", { id: this.paneId }).catch(() => {});
             return;
+          }
+          // Flush any navigate() that landed during the creating window: the
+          // webview was opened to openedUrl but pendingUrl may now differ.
+          if (this.pendingUrl !== openedUrl) {
+            invoke("browser_navigate", { id: this.paneId, url: this.pendingUrl }).catch(() => {});
           }
           // Re-apply once the view exists (the open rect may already be stale).
           this.lastRect = null;

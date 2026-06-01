@@ -3,6 +3,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { pushOverlay, popOverlay } from "./overlay";
 
 /**
  * Notification store: the "an agent needs you" signal. A notification rings its
@@ -129,8 +130,18 @@ export class NotificationStore {
 
   togglePanel(): void {
     const showing = this.panel.style.display !== "none";
-    this.panel.style.display = showing ? "none" : "flex";
-    if (!showing) this.render();
+    if (showing) {
+      // Hiding: pop before removing from DOM flow so browser webviews restore
+      // only after the panel is gone (key "notif" is stable and idempotent).
+      popOverlay("notif");
+      this.panel.style.display = "none";
+    } else {
+      // Showing: render first so the panel is populated, then register with
+      // the occlusion guard to hide native browser webviews behind it.
+      this.render();
+      this.panel.style.display = "flex";
+      pushOverlay("notif");
+    }
   }
 
   /** Jump to the most recent unread notification's pane (Alt+Shift+U). */

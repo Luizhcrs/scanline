@@ -28,9 +28,38 @@ struct Pty {
     pid: u32,
 }
 
-#[derive(Default)]
 struct PtyManager {
-    ptys: Mutex<HashMap<u32, Pty>>,
+    ptys: Arc<Mutex<HashMap<u32, Pty>>>,
+    /// Per-id generation counter (Arc so reader/flusher threads can share it):
+    /// bumped each time an id is reused so stale threads detect they are dead
+    /// and skip emitting data/exit on the new pane's channel. (bug #113)
+    generations: Arc<Mutex<HashMap<u32, u64>>>,
+}
+
+impl Default for PtyManager {
+    fn default() -> Self {
+        Self {
+            ptys: Arc::new(Mutex::new(HashMap::new())),
+            generations: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+/// Readiness gate for the control server V2 path. (bug #1240)
+/// The frontend calls `control_frontend_ready` after registering its listeners;
+/// until then, V2 requests fail fast instead of blocking the full 20s timeout.
+struct FrontendReady {
+    flag: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl Default for FrontendReady {
+    fn default() -> Self {
+        Self {
+            flag: AtomicBool::new(false),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
 }
 
 /// Spawn a new ConPTY running the user's shell. The frontend supplies the pty
@@ -110,9 +139,17 @@ fn pty_spawn(
 
     // Reusing an id would orphan the old shell + its reader thread (both emit to
     // the same pty://{id} channel). Kill any existing pty on this id first.
+    // Bump the generation so the old threads' captured gen != current gen and
+    // they skip emitting on the new pane's channel. (bug #113)
     if let Some(mut old) = state.ptys.lock().unwrap().remove(&id) {
         let _ = old.child.kill();
     }
+    let current_gen = {
+        let mut gens = state.generations.lock().unwrap();
+        let g = gens.entry(id).or_insert(0);
+        *g += 1;
+        *g
+    };
     state.ptys.lock().unwrap().insert(
         id,
         Pty {
@@ -141,10 +178,17 @@ fn pty_spawn(
     // streams as several events instead — each decodes in ~ms and the event loop
     // handles input between them. No artificial throughput cap (a fast build log
     // must not lag), and a generous buffer so only a true unbounded firehose ever
-    // drops; when it must, drop oldest up to a newline to avoid splitting an
-    // escape/UTF-8 sequence mid-stream (which would garble the xterm parser).
+    // drops; when it must, drop oldest up to a UTF-8 lead byte to avoid splitting
+    // a multibyte sequence mid-stream (which would garble the xterm parser).
     const BUF_MAX: usize = 32 * 1024 * 1024;
     const EMIT_MAX: usize = 256 * 1024;
+
+    // Clone Arc refs so reader/flusher threads can check/mutate shared state
+    // without borrowing `state` across the thread boundary. (bug #113, #234)
+    let spawn_gen = current_gen;
+    let gens_for_reader = Arc::clone(&state.generations);
+    let gens_for_flusher = Arc::clone(&state.generations);
+    let ptys_for_flusher = Arc::clone(&state.ptys);
 
     let rbuf = buffer.clone();
     let rdone = done.clone();
@@ -161,13 +205,23 @@ fn pty_spawn(
                     b.extend_from_slice(&tmp[..n]);
                     if b.len() > BUF_MAX {
                         let overflow = b.len() - BUF_MAX;
-                        // Drop oldest, but advance to the next newline so a cut
-                        // never lands inside an escape/UTF-8 sequence.
+                        // Drop oldest, advancing to the next newline when possible.
+                        // Fallback: scan from `overflow` forward to the first byte
+                        // that is NOT a UTF-8 continuation byte (b & 0xC0 != 0x80)
+                        // so the cut lands on a codepoint boundary. (bug #170)
                         let cut = b[overflow..]
                             .iter()
                             .position(|&c| c == b'\n')
                             .map(|p| overflow + p + 1)
-                            .unwrap_or(overflow);
+                            .unwrap_or_else(|| {
+                                // No newline found: find first UTF-8 lead byte at or
+                                // after `overflow` so we do not split a multibyte char.
+                                b[overflow..]
+                                    .iter()
+                                    .position(|&c| c & 0xC0 != 0x80)
+                                    .map(|p| overflow + p)
+                                    .unwrap_or(overflow)
+                            });
                         b.drain(..cut);
                     }
                     drop(b);
@@ -178,12 +232,22 @@ fn pty_spawn(
         }
         rdone.store(true, Ordering::SeqCst);
         cv.notify_one(); // wake the flusher so it observes `done` and exits
+        // The flusher owns the pty removal and exit emit (it drains remaining
+        // buffered data first). gens_for_reader is not used at EOF — it was
+        // captured only to satisfy the move closure; suppress the lint.
+        let _ = gens_for_reader;
     });
 
     let app2 = app.clone();
+    let gens_ref = gens_for_flusher;
+    let ptys_ref = ptys_for_flusher;
     thread::spawn(move || {
         use base64::Engine;
         let (lock, cv) = &*buffer;
+        // Track whether we left a non-empty backlog last iteration: when draining
+        // a leftover backlog the 8ms coalesce sleep is skipped so large bursts
+        // don't accumulate forced tail latency. (bug #206)
+        let mut had_leftover = false;
         loop {
             // 1) Block until there's output (or the pty ended) — no idle polling.
             {
@@ -203,11 +267,16 @@ fn pty_spawn(
             //    writes per second; emitting each one floods the WebView2 IPC and
             //    freezes the UI thread (Application Hang / "Not Responding"). One
             //    event per ~8ms batches them with imperceptible latency.
-            thread::sleep(std::time::Duration::from_millis(8));
+            //    Skip when draining a leftover backlog: the comment's claim that
+            //    "the next iteration emits immediately" is now actually true. (bug #206)
+            if !had_leftover {
+                thread::sleep(std::time::Duration::from_millis(8));
+            }
             // 3) Take at most EMIT_MAX; a big burst stays buffered and the next
             //    loop iteration emits the rest immediately (no extra wait).
             let chunk = {
                 let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
+                had_leftover = b.len() > EMIT_MAX;
                 if b.len() <= EMIT_MAX {
                     std::mem::take(&mut *b)
                 } else {
@@ -217,10 +286,37 @@ fn pty_spawn(
             if chunk.is_empty() {
                 continue;
             }
+            // Generation guard: only emit if this thread is still the current
+            // owner of this id. A reused id gets a new generation, so old threads
+            // silently drop their remaining data instead of polluting the new pane. (bug #113)
+            let cur_gen = gens_ref
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .copied()
+                .unwrap_or(0);
+            if cur_gen != spawn_gen {
+                break; // stale generation — stop without emitting exit
+            }
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
             let _ = app2.emit(&data_event, encoded);
         }
-        let _ = app2.emit(&exit_event, ());
+        // Final generation check before emitting exit.
+        let cur_gen = gens_ref
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .copied()
+            .unwrap_or(0);
+        if cur_gen == spawn_gen {
+            // Remove the pty entry from the map right before emitting exit so
+            // pty_write/pty_resize take the unknown-id path after shell EOF. (bug #234)
+            ptys_ref
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
+            let _ = app2.emit(&exit_event, ());
+        }
     });
 
     Ok(())
@@ -231,28 +327,35 @@ fn pty_spawn(
 #[tauri::command]
 fn pty_write(state: State<PtyManager>, id: u32, data: Vec<u8>) -> Result<(), String> {
     let mut map = state.ptys.lock().unwrap();
-    if let Some(p) = map.get_mut(&id) {
-        p.writer.write_all(&data).map_err(|e| e.to_string())?;
-        p.writer.flush().map_err(|e| e.to_string())?;
+    // Return Err on unknown id so the frontend can log/surface dropped keystrokes
+    // instead of silently no-oping on a dead pty. (bug #234)
+    match map.get_mut(&id) {
+        Some(p) => {
+            p.writer.write_all(&data).map_err(|e| e.to_string())?;
+            p.writer.flush().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        None => Err(format!("pty_write: unknown pty id {id}")),
     }
-    Ok(())
 }
 
 /// Resize a pty to match the xterm.js viewport.
 #[tauri::command]
 fn pty_resize(state: State<PtyManager>, id: u32, rows: u16, cols: u16) -> Result<(), String> {
     let map = state.ptys.lock().unwrap();
-    if let Some(p) = map.get(&id) {
-        p.master
+    // Return Err on unknown id, same rationale as pty_write. (bug #234)
+    match map.get(&id) {
+        Some(p) => p
+            .master
             .resize(PtySize {
                 rows,
                 cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string()),
+        None => Err(format!("pty_resize: unknown pty id {id}")),
     }
-    Ok(())
 }
 
 /// Close a pty: kill the child and drop its handles.
@@ -306,7 +409,24 @@ fn run_capture(program: &str, args: &[&str], cwd: Option<&str>) -> Option<String
             }
         }
         Err(_) => {
+            // Kill the direct child first, then the whole process tree via
+            // taskkill /T /F so grandchildren holding the stdout pipe write-end
+            // are also reaped. Without this, a grandchild (e.g. gh's credential
+            // helper or git pager) keeps the pipe open and `read_to_string` in
+            // the reader thread blocks forever, leaking the thread. (bug #293)
+            let pid = child.id();
             let _ = child.kill();
+            #[cfg(windows)]
+            if pid != 0 {
+                use std::os::windows::process::CommandExt;
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/T", "/F", "/PID", &pid.to_string()])
+                    .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
             let _ = child.wait();
             None
         }
@@ -349,11 +469,34 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
         return Ok(vec![]);
     }
     tauri::async_runtime::spawn_blocking(move || {
+        // Mitigate PID-reuse race: take the netstat snapshot FIRST, then snapshot
+        // the process tree. A PID must appear in BOTH snapshots to be trusted as
+        // a descendant — this narrows (but does not fully close) the window where
+        // a recycled PID belonging to an unrelated process is attributed to this
+        // pane. (bug #365)
+        let netstat_out = run_capture("netstat", &["-ano"], None);
+        // Second snapshot: collect pids seen in netstat output that are candidates.
+        let candidate_pids: std::collections::HashSet<u32> = netstat_out
+            .as_deref()
+            .unwrap_or("")
+            .lines()
+            .filter(|l| l.contains("LISTENING"))
+            .filter_map(|l| {
+                let cols: Vec<&str> = l.split_whitespace().collect();
+                if cols.len() < 5 { None } else { cols[cols.len() - 1].parse::<u32>().ok() }
+            })
+            .collect();
+        // Now snapshot the process tree (after netstat, narrowing the race window).
         let pids = descendant_pids(root);
+        // Intersect: only trust pids that were in the netstat output AND are still
+        // descendants of root in the current process tree.
+        let trusted: std::collections::HashSet<u32> =
+            candidate_pids.intersection(&pids).copied().collect();
+
         let mut ports: Vec<u16> = Vec::new();
         // netstat -ano lists TCP + TCPv6; we filter on the LISTENING column so
         // IPv6 listeners ([::]:PORT, common for dev servers) are included too.
-        if let Some(out) = run_capture("netstat", &["-ano"], None) {
+        if let Some(out) = netstat_out {
             for line in out.lines() {
                 if !line.contains("LISTENING") {
                     continue;
@@ -363,7 +506,7 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
                     continue;
                 }
                 let pid: u32 = cols[cols.len() - 1].parse().unwrap_or(0);
-                if !pids.contains(&pid) {
+                if !trusted.contains(&pid) {
                     continue;
                 }
                 if let Some(port) = cols[1].rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
@@ -575,9 +718,27 @@ fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
 // pane's rectangle in the grid. Unlike an <iframe>, it ignores
 // X-Frame-Options, so any site (google, github, …) loads.
 
-#[derive(Default)]
 struct BrowserManager {
     views: Mutex<HashMap<u32, tauri::Webview<Wry>>>,
+    /// Per-id epoch counter for on_navigation: bumped when a pane is opened so
+    /// a dying predecessor's trailing navigation events are suppressed. (bug #623)
+    nav_epochs: Mutex<HashMap<u32, u64>>,
+}
+
+impl Default for BrowserManager {
+    fn default() -> Self {
+        Self {
+            views: Mutex::new(HashMap::new()),
+            nav_epochs: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+/// Poison-tolerant views lock helper: consistent with the existing defensive
+/// pattern at the on_navigation closure. If the mutex is ever poisoned a future
+/// change won't brick every browser command or the ExitRequested cleanup. (bug #666)
+fn lock_views(b: &BrowserManager) -> std::sync::MutexGuard<'_, HashMap<u32, tauri::Webview<Wry>>> {
+    b.views.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Create a child webview on the main window at the given logical bounds.
@@ -599,7 +760,19 @@ async fn browser_open(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let old = browsers.views.lock().unwrap().remove(&id);
+    let old = lock_views(&browsers).remove(&id);
+    // Bump the navigation epoch for this id so any on_navigation closure from
+    // the dying predecessor webview can detect it is stale and skip emitting. (bug #623)
+    let nav_epoch = {
+        let mut epochs = browsers.nav_epochs.lock().unwrap_or_else(|e| e.into_inner());
+        let e = epochs.entry(id).or_insert(0);
+        *e += 1;
+        *e
+    };
+    // The on_navigation closure runs on the main thread and captures `nav_epoch`.
+    // It reads the current epoch from BrowserManager via the AppHandle to detect
+    // whether it is the live webview or a stale dying predecessor. (bug #623)
+    let nav_app_handle = app.clone();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app2 = app.clone();
     app.run_on_main_thread(move || {
@@ -621,6 +794,22 @@ async fn browser_open(
             let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
             let builder = WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed))
                 .on_navigation(move |u| {
+                    // Generation guard: skip emit if a newer epoch exists for this id,
+                    // meaning this webview was replaced and is the dying predecessor. (bug #623)
+                    let current_epoch = nav_app_handle
+                        .try_state::<BrowserManager>()
+                        .map(|bm| {
+                            bm.nav_epochs
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .get(&id)
+                                .copied()
+                                .unwrap_or(0)
+                        })
+                        .unwrap_or(0);
+                    if current_epoch != nav_epoch {
+                        return true; // stale — allow navigation but don't emit
+                    }
                     let s = u.to_string();
                     let mut last = last_url.lock().unwrap_or_else(|e| e.into_inner());
                     if *last != s {
@@ -644,7 +833,12 @@ async fn browser_open(
     let webview = rx
         .await
         .map_err(|_| "browser_open: main-thread closure dropped".to_string())??;
-    browsers.views.lock().unwrap().insert(id, webview);
+    // Update nav_epochs with the live value (the Arc clone above was a snapshot).
+    {
+        let mut epochs = browsers.nav_epochs.lock().unwrap_or_else(|e| e.into_inner());
+        epochs.insert(id, nav_epoch);
+    }
+    lock_views(&browsers).insert(id, webview);
     Ok(())
 }
 
@@ -663,7 +857,7 @@ fn browser_bounds(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = v.set_position(LogicalPosition::new(x, y));
@@ -682,7 +876,7 @@ fn browser_navigate(
     url: String,
 ) -> Result<(), String> {
     let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
-    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = v.navigate(parsed);
@@ -699,7 +893,7 @@ fn browser_visible(
     id: u32,
     visible: bool,
 ) -> Result<(), String> {
-    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = if visible { v.show() } else { v.hide() };
@@ -711,7 +905,7 @@ fn browser_visible(
 /// Navigate back in a browser pane's history.
 #[tauri::command]
 fn browser_back(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = v.eval("history.back()");
@@ -723,7 +917,7 @@ fn browser_back(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Res
 /// Navigate forward in a browser pane's history.
 #[tauri::command]
 fn browser_forward(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    let v = browsers.views.lock().unwrap().get(&id).cloned();
+    let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = v.eval("history.forward()");
@@ -735,7 +929,7 @@ fn browser_forward(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> 
 /// Close and drop a browser pane's webview.
 #[tauri::command]
 fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    let v = browsers.views.lock().unwrap().remove(&id);
+    let v = lock_views(&browsers).remove(&id);
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
             let _ = v.close();
@@ -748,10 +942,7 @@ fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Re
 #[cfg(windows)]
 #[tauri::command]
 fn browser_devtools(browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
-    let wv = browsers
-        .views
-        .lock()
-        .unwrap()
+    let wv = lock_views(&browsers)
         .get(&id)
         .cloned()
         .ok_or_else(|| format!("no browser pane {id}"))?;
@@ -834,11 +1025,13 @@ async fn cdp_call(
         .map_err(|e| format!("with_webview failed: {e}"))?;
 
     // Bound the wait: if WebView2 never invokes the completion handler (page
-    // torn down / core crashed) the receiver would park forever, pinning this
-    // worker (and, for the in-control-loop debug path, the pipe task).
-    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+    // torn down / core crashed) the receiver would park forever. Use 15s so this
+    // inner limit is strictly below the control-loop's 20s outer deadline — that
+    // way the inner layer always loses the race and the pending entry stays
+    // consistent instead of a spurious control timeout for a call that succeeded. (bug #839)
+    match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
         Ok(r) => r.map_err(|_| "cdp_call: no response (CoreWebView2 not ready?)".to_string())?,
-        Err(_) => Err("cdp_call: timed out after 30s".to_string()),
+        Err(_) => Err("cdp_call: timed out after 15s".to_string()),
     }
 }
 
@@ -859,10 +1052,7 @@ async fn browser_cdp(
     method: String,
     params: Option<String>,
 ) -> Result<String, String> {
-    let webview = browsers
-        .views
-        .lock()
-        .unwrap()
+    let webview = lock_views(&browsers)
         .get(&id)
         .cloned()
         .ok_or_else(|| format!("no browser pane {id}"))?;
@@ -966,13 +1156,27 @@ async fn handle_control_client(
 ) {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+    // 1 MiB per-line cap: a client streaming bytes without '\n' cannot grow
+    // memory without bound. (bug #973)
+    const MAX_LINE: usize = 1 << 20;
+
     let mut reader = BufReader::new(server);
     let mut line = String::new();
     loop {
         line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break, // client disconnected
-            Ok(_) => {
+        // Wrap read_line with a per-read idle timeout so a stalled or misbehaving
+        // local process does not park this task forever. (bug #973)
+        let read_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            reader.read_line(&mut line),
+        )
+        .await;
+        match read_result {
+            Err(_timeout) => break, // idle for 30s — drop the connection
+            Ok(Ok(0)) => break,     // client disconnected
+            Ok(Ok(n)) if n >= MAX_LINE => break, // oversized line — drop
+            Ok(Err(_)) => break,
+            Ok(Ok(_)) => {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;
@@ -989,11 +1193,8 @@ async fn handle_control_client(
                                 .and_then(|x| x.as_str())
                                 .unwrap_or("1")
                                 .to_string();
-                            let wv = app
-                                .state::<BrowserManager>()
-                                .views
-                                .lock()
-                                .unwrap()
+                            // Use lock_views helper for poison-tolerance. (bug #666)
+                            let wv = lock_views(&app.state::<BrowserManager>())
                                 .get(&id)
                                 .cloned();
                             let res = match wv {
@@ -1017,6 +1218,32 @@ async fn handle_control_client(
                         {
                             // V2 request/response: forward to the frontend and wait
                             // for its reply (control_reply) keyed by this id.
+                            // Check frontend readiness gate before emitting: if the
+                            // frontend listeners are not yet set up, fail fast
+                            // instead of blocking the full 20s timeout. (bug #1240)
+                            let ready_state = app.try_state::<FrontendReady>();
+                            if let Some(ref ready) = ready_state {
+                                if !ready.flag.load(Ordering::Acquire) {
+                                    // Wait up to 2s for the frontend to become ready.
+                                    let notified = tokio::time::timeout(
+                                        std::time::Duration::from_secs(2),
+                                        ready.notify.notified(),
+                                    )
+                                    .await;
+                                    if notified.is_err() && !ready.flag.load(Ordering::Acquire) {
+                                        let resp = serde_json::json!({
+                                            "id": req_id,
+                                            "ok": false,
+                                            "error": "frontend not ready"
+                                        });
+                                        let _ = reader
+                                            .get_mut()
+                                            .write_all(format!("{resp}\n").as_bytes())
+                                            .await;
+                                        continue;
+                                    }
+                                }
+                            }
                             let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
                             app.state::<ControlPending>()
                                 .0
@@ -1032,15 +1259,39 @@ async fn handle_control_client(
                                 Some("feed.ask") => 600,
                                 _ => 20,
                             };
+                            // RAII guard: remove the pending entry when this scope
+                            // exits (normal reply, timeout, OR pipe disconnect).
+                            // This ensures abandoned tx entries never linger for the
+                            // full timeout even when the caller dies mid-wait. (bug #1015)
+                            struct PendingGuard<'a> {
+                                pending: tauri::State<'a, ControlPending>,
+                                id: String,
+                                disarmed: bool,
+                            }
+                            impl<'a> Drop for PendingGuard<'a> {
+                                fn drop(&mut self) {
+                                    if !self.disarmed {
+                                        self.pending.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+                                    }
+                                }
+                            }
+                            let mut guard = PendingGuard {
+                                pending: app.state::<ControlPending>(),
+                                id: req_id.clone(),
+                                disarmed: false,
+                            };
                             let resp = match tokio::time::timeout(
                                 std::time::Duration::from_secs(secs),
                                 rx,
                             )
                             .await
                             {
-                                Ok(Ok(val)) => val,
+                                Ok(Ok(val)) => {
+                                    guard.disarmed = true; // was already removed by control_reply
+                                    val
+                                }
                                 _ => {
-                                    app.state::<ControlPending>().0.lock().unwrap().remove(&req_id);
+                                    // timeout or sender dropped — guard.drop() will clean up
                                     serde_json::json!({"id": req_id, "ok": false, "error": "no reply / timeout"})
                                 }
                             };
@@ -1055,7 +1306,6 @@ async fn handle_control_client(
                 };
                 let _ = reader.get_mut().write_all(ack.as_bytes()).await;
             }
-            Err(_) => break,
         }
     }
 }
@@ -1082,21 +1332,28 @@ fn start_control_server(app: AppHandle) {
         };
         loop {
             if server.connect().await.is_err() {
-                match ServerOptions::new().create(CONTROL_PIPE) {
-                    Ok(s) => server = s,
-                    Err(e) => {
-                        eprintln!("control: recreate failed: {e}");
-                        return;
+                // Recreate with bounded retry+backoff so a transient resource
+                // error does not permanently kill the control server. (bug #1095)
+                server = loop {
+                    match ServerOptions::new().create(CONTROL_PIPE) {
+                        Ok(s) => break s,
+                        Err(e) => {
+                            eprintln!("control: recreate failed (retrying): {e}");
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        }
                     }
-                }
+                };
                 continue;
             }
             let connected = server;
-            server = match ServerOptions::new().create(CONTROL_PIPE) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("control: recreate failed: {e}");
-                    return;
+            // Same retry loop for the post-handoff recreate. (bug #1095)
+            server = loop {
+                match ServerOptions::new().create(CONTROL_PIPE) {
+                    Ok(s) => break s,
+                    Err(e) => {
+                        eprintln!("control: recreate failed (retrying): {e}");
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
                 }
             };
             tauri::async_runtime::spawn(handle_control_client(connected, app.clone()));
@@ -1211,6 +1468,14 @@ fn apply_dark_titlebar(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Called by the frontend after registering its control://request listeners.
+/// Flips the readiness gate so V2 requests no longer fail-fast. (bug #1240)
+#[tauri::command]
+fn control_frontend_ready(ready: State<FrontendReady>) {
+    ready.flag.store(true, Ordering::Release);
+    ready.notify.notify_waiters();
+}
+
 pub fn run() {
     // Capture panics to %APPDATA%\scanline\crash.log so an occasional crash
     // leaves evidence (message + location) instead of vanishing.
@@ -1237,6 +1502,7 @@ pub fn run() {
         .manage(PtyManager::default())
         .manage(BrowserManager::default())
         .manage(ControlPending::default())
+        .manage(FrontendReady::default())
         .setup(|app| {
             start_control_server(app.handle().clone());
             #[cfg(windows)]
@@ -1264,6 +1530,7 @@ pub fn run() {
             browser_cdp,
             cdp_selftest,
             control_reply,
+            control_frontend_ready,
             repo_info,
             pane_ports,
             grep_dir,
@@ -1280,13 +1547,21 @@ pub fn run() {
             // pty reader threads block on a live child (app hangs on close) and
             // native webviews leak as orphans.
             if let RunEvent::ExitRequested { .. } = event {
+                // Poison-tolerant locks: a panicked pty thread must not prevent
+                // child shells from being killed (which would hang the app on close). (bug #1282)
                 if let Some(ptys) = app.try_state::<PtyManager>() {
-                    for (_, mut p) in ptys.ptys.lock().unwrap().drain() {
+                    for (_, mut p) in ptys
+                        .ptys
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .drain()
+                    {
                         let _ = p.child.kill();
                     }
                 }
+                // lock_views for poison-tolerance here too. (bug #1282, #666)
                 if let Some(browsers) = app.try_state::<BrowserManager>() {
-                    for (_, v) in browsers.views.lock().unwrap().drain() {
+                    for (_, v) in lock_views(&browsers).drain() {
                         let _ = v.close();
                     }
                 }

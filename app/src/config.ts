@@ -80,7 +80,18 @@ function merge(base: any, over: any): any {
     if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     const b = base?.[k];
     const o = over[k];
-    out[k] = b && typeof b === "object" && o && typeof o === "object" ? merge(b, o) : o;
+    const baseIsObj = b != null && typeof b === "object";
+    const overIsObj = o != null && typeof o === "object";
+    // Type-mismatch guard: if the default key is a structured object but the
+    // override is a scalar (or vice versa), the user config is malformed for
+    // that key. Keep the default to avoid crashing the settings panel on
+    // something like `"terminal": "bad"` replacing the entire terminal object.
+    if (baseIsObj !== overIsObj) {
+      console.warn(`config merge: type mismatch for key "${k}", keeping default`);
+      out[k] = b;
+      continue;
+    }
+    out[k] = baseIsObj && overIsObj ? merge(b, o) : o;
   }
   return out;
 }

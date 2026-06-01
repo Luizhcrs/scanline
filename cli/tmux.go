@@ -76,13 +76,19 @@ func runTmuxCompat(args []string) {
 		for i := 0; i < len(rest); i++ {
 			a := rest[i]
 			switch {
+			case a == "--":
+				// Explicit end-of-flags: everything after is literal keys, no
+				// further flag parsing. Must be checked before the "-" prefix arm.
+				keys = append(keys, rest[i+1:]...)
+				i = len(rest)
 			case a == "-t":
 				i++ // skip target value; we use the caller surface
 			case strings.HasPrefix(a, "-"):
-				// -l (literal), -R, etc — ignored
+				// -l (literal), -R, etc — ignored (boolean flags, no value)
 			default:
-				keys = append(keys, rest[i:]...)
-				i = len(rest)
+				// Each non-flag token is one key; do NOT greedily slurp rest[i:]
+				// — that would bundle multi-token lists into a single key string.
+				keys = append(keys, a)
 			}
 		}
 		for _, k := range keys {
@@ -157,15 +163,57 @@ func envSurface() any {
 }
 
 // isKeyName reports whether a tmux send-keys token is a key name (vs literal text).
+//
+// Recognized forms (case-insensitive base names):
+//
+//	Named keys : enter, tab, escape/esc, space, bspace/backspace, up, down,
+//	             left, right, home, end, pageup/ppage, pagedown/npage, delete,
+//	             btab (S-Tab), ic (Insert), dc (Delete alias), F1-F12.
+//	Chords     : <Modifier>-<base> where Modifier is exactly one of C, M, S
+//	             (case-insensitive) and base is a single printable ASCII char
+//	             or a known named key. Split on the LAST '-' so "C-F1" works.
+//	             Conservative: "c-section" has base "section" which is not a
+//	             single char or known key, so it stays literal text.
 func isKeyName(k string) bool {
-	switch strings.ToLower(k) {
-	case "enter", "tab", "escape", "esc", "space", "bspace", "backspace",
-		"up", "down", "left", "right", "home", "end", "pageup", "pagedown", "delete":
+	lower := strings.ToLower(k)
+	if isBaseKey(lower) {
 		return true
 	}
-	// C-x / M-x / S-x chords: modifier, dash, single char (exactly 3 chars), so
-	// literal text like "c-section" isn't misread as a key.
-	return len(k) == 3 && k[1] == '-' && strings.ContainsRune("CMScms", rune(k[0]))
+	// Chord: split on the last '-' to handle bases like F1-F12.
+	idx := strings.LastIndex(k, "-")
+	if idx <= 0 {
+		return false
+	}
+	mod := strings.ToLower(k[:idx])
+	base := strings.ToLower(k[idx+1:])
+	// Modifier must be exactly one of c, m, s (Ctrl, Meta/Alt, Shift).
+	if mod != "c" && mod != "m" && mod != "s" {
+		return false
+	}
+	// Base must be a single printable ASCII character or a known named key.
+	if len(base) == 1 && base[0] >= 0x20 && base[0] <= 0x7e {
+		return true
+	}
+	return isBaseKey(base)
+}
+
+// isBaseKey reports whether lower-cased k is a standalone tmux key name.
+func isBaseKey(k string) bool {
+	switch k {
+	case "enter", "tab", "btab",
+		"escape", "esc",
+		"space",
+		"bspace", "backspace",
+		"up", "down", "left", "right",
+		"home", "end",
+		"pageup", "ppage", "pagedown", "npage",
+		"delete", "dc",
+		"ic",
+		"f1", "f2", "f3", "f4", "f5", "f6",
+		"f7", "f8", "f9", "f10", "f11", "f12":
+		return true
+	}
+	return false
 }
 
 // launchAgent runs an agent (claude, codex, …) with a fake-tmux environment so

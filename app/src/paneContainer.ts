@@ -20,6 +20,8 @@ export class PaneContainer implements PaneLike {
   private containerMounted = false;
   private disposed = false;
   private _keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+  // Cancels an in-flight pane drag (set by startPaneDrag, called by dispose).
+  private cancelDrag?: () => void;
 
   onExit?: (pane: PaneLike) => void;
   onFocusRequest?: (pane: PaneLike) => void;
@@ -87,14 +89,19 @@ export class PaneContainer implements PaneLike {
     const finish = (dstId: number | null) => {
       if (done) return;
       done = true;
+      this.cancelDrag = undefined; // drag is over; dispose no longer needs to call us
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
       document.removeEventListener("pointercancel", cancel);
       window.removeEventListener("blur", cancel);
       clearHighlight();
-      this.onPaneDragEnd?.(); // restore browser webviews
+      // Do the layout swap BEFORE restoring webviews so a browser pane is not
+      // shown at its pre-swap (stale) bounds for a frame.
       if (dstId !== null && dstId !== this.paneId) this.onPaneMove?.(dstId);
+      this.onPaneDragEnd?.(); // restore browser webviews (after swap bounds computed)
     };
+    // Allow dispose() to abort an in-flight drag (e.g. loadTree mid-drag).
+    this.cancelDrag = () => finish(null);
     const move = (ev: PointerEvent) => {
       clearHighlight();
       paneUnder(ev.clientX, ev.clientY)?.classList.add("drop-target");
@@ -141,7 +148,11 @@ export class PaneContainer implements PaneLike {
         this.flagged.add(s);
         this.renderStrip();
       }
-      this.onNotify?.(this, t, b);
+      // Forward the originating surface's identity (paneId) instead of the
+      // container's so notifications.ts can key notifs per-surface tab, not
+      // per-container. The PaneLike contract passes pane as first arg; we
+      // synthesise a minimal object carrying s.paneId for the handler.
+      this.onNotify?.(s, t, b);
     };
   }
 
@@ -172,21 +183,35 @@ export class PaneContainer implements PaneLike {
 
   /** Agent lifecycle status -> a colored dot on the pane (running/waiting/…). */
   setStatus(status: string): void {
-    this.el.classList.remove(
-      "status-running",
-      "status-waiting",
-      "status-idle",
-      "status-error",
+    // Generic clear: remove ANY previously applied status-* class so an unknown
+    // value never accumulates alongside a later known one.
+    const toRemove = Array.from(this.el.classList).filter((c) =>
+      c.startsWith("status-"),
     );
-    if (status && status !== "idle") this.el.classList.add("status-" + status);
+    if (toRemove.length) this.el.classList.remove(...toRemove);
+    // Only known statuses produce a visual dot; silently drop unknowns.
+    const known = ["running", "waiting", "idle", "error"];
+    if (status && status !== "idle" && known.includes(status)) {
+      this.el.classList.add("status-" + status);
+    }
   }
 
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    // Abort any in-flight pane drag before tearing down; finish(null) removes the
+    // document/window listeners so they cannot reference this disposed container.
+    this.cancelDrag?.();
     for (const s of this.surfaces) await s.dispose();
     this.surfaces = [];
     this.el.remove();
+    // Null all Layout callback back-refs (mirrors Pane.dispose): these closures
+    // capture the long-lived App/Layout; releasing them lets the GC collect this
+    // container even when a stale reference (e.g. an in-flight rAF) lingers.
+    this.keyHandler = null;
+    this.onExit = this.onFocusRequest = this.onCloseRequest = this.onSplitRequest =
+      this.onNotify = this.onOpenUrl = this.onPaneDragStart = this.onPaneDragEnd =
+      this.onPaneMove = undefined;
   }
 
   // ---- tabs ----
@@ -242,7 +267,11 @@ export class PaneContainer implements PaneLike {
     to = Math.max(0, Math.min(to, this.surfaces.length - 1));
     const activeSurf = this.activeSurface;
     const [s] = this.surfaces.splice(from, 1);
-    this.surfaces.splice(to, 0, s);
+    // splice(from,1) shifts every index >from down by one, so a right-to-left
+    // drop lands correctly at `to`. A left-to-right drop must subtract 1 to
+    // land ON the drop-target element rather than after it.
+    const dest = from < to ? to - 1 : to;
+    this.surfaces.splice(dest, 0, s);
     this.active = this.surfaces.indexOf(activeSurf);
     this.renderStrip();
   }

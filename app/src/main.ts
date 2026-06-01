@@ -86,7 +86,13 @@ interface ControlResult {
   error?: string;
 }
 
-/** Map a named key / ctrl-chord (enter, tab, c-c, up, …) to pty bytes. */
+/** Map a named key / ctrl-chord (enter, tab, c-c, up, …) to pty bytes.
+ *  Extended to handle the full set of tmux-compat keys emitted by the Go shim:
+ *    F1-F4      -> SS3 sequences (\x1bOP .. \x1bOS)
+ *    F5-F12     -> CSI tilde sequences (\x1b[15~ .. \x1b[24~)
+ *    S-Tab/BTab -> \x1b[Z  (reverse-tab)
+ *  Modifier prefixes C- (ctrl), M- (alt/meta), S- (shift) can be combined
+ *  and are resolved recursively so e.g. "C-M-x" works. */
 function keyToBytes(key: string): string {
   const k = key.toLowerCase();
   const named: Record<string, string> = {
@@ -105,10 +111,34 @@ function keyToBytes(key: string): string {
     end: "\x1b[F",
     pageup: "\x1b[5~",
     pagedown: "\x1b[6~",
+    // F1-F4: SS3 (VT220 / xterm default)
+    f1: "\x1bOP",
+    f2: "\x1bOQ",
+    f3: "\x1bOR",
+    f4: "\x1bOS",
+    // F5-F12: CSI tilde (xterm)
+    f5:  "\x1b[15~",
+    f6:  "\x1b[17~",
+    f7:  "\x1b[18~",
+    f8:  "\x1b[19~",
+    f9:  "\x1b[20~",
+    f10: "\x1b[21~",
+    f11: "\x1b[23~",
+    f12: "\x1b[24~",
+    // Shift-Tab (reverse-tab)
+    "s-tab": "\x1b[Z",
+    btab:    "\x1b[Z",
   };
   if (named[k]) return named[k];
+  // C-/ctrl- modifier: map to control character (e.g. C-c -> \x03)
   const ctrl = k.match(/^(?:c|ctrl)-(.)$/);
   if (ctrl) return String.fromCharCode(ctrl[1].toUpperCase().charCodeAt(0) & 0x1f);
+  // M-/meta-/alt- modifier: prefix with ESC
+  const meta = k.match(/^(?:m|meta|alt)-(.+)$/);
+  if (meta) return "\x1b" + keyToBytes(meta[1]);
+  // S-/shift- modifier: uppercase the base character
+  const shift = k.match(/^s-(.+)$/);
+  if (shift) return keyToBytes(shift[1]).toUpperCase();
   return key;
 }
 
@@ -168,7 +198,9 @@ class App {
     // that touches activeWs runs against it.
     void this.boot();
 
-    window.addEventListener("resize", () => this.activeLayout.refitAll());
+    // Guard matches the onOverlayChange sibling above — activeWs is undefined
+    // until boot() finishes creating the first workspace.
+    window.addEventListener("resize", () => { if (!this.activeWs) return; this.activeLayout.refitAll(); });
     // Best-effort final save when the window closes (the 8s autosave covers
     // crashes / power loss).
     window.addEventListener("beforeunload", () => {
@@ -194,6 +226,10 @@ class App {
         );
     });
     void listen<ControlCommand>("control://command", (e) => void this.dispatch(e.payload));
+    // Signal the Rust control server that the frontend listeners above are now
+    // registered. V2 requests arriving before this point would have timed out
+    // (20s) instead of being served. The Rust side gates its first emit on this.
+    void invoke("control_frontend_ready").catch(() => {});
   }
 
   get activeWs(): Workspace {
@@ -253,13 +289,26 @@ class App {
   /** Persist the session every 8s when it has changed. */
   private startAutosave(): void {
     setInterval(() => {
-      if (document.hidden) return; // minimized: nothing changes, skip disk I/O
+      // Removed `document.hidden` early-return: CLI/agent dispatch() can mutate
+      // layout while minimized, so "hidden == unchanged" was false. The
+      // json !== lastSaved dirty-check below is sufficient to suppress I/O
+      // when nothing has actually changed.
       const json = JSON.stringify(this.serializeSession());
       if (json !== this.lastSaved) {
         this.lastSaved = json;
         void invoke("save_session", { json });
       }
     }, 8000);
+    // Flush one save when the window goes to background so any mutations that
+    // accumulated just before minimizing are persisted before the 8s tick fires.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) return;
+      const json = JSON.stringify(this.serializeSession());
+      if (json !== this.lastSaved) {
+        this.lastSaved = json;
+        void invoke("save_session", { json });
+      }
+    });
   }
 
   private helpEl?: HTMLElement;
@@ -481,8 +530,17 @@ class App {
       grid,
       layout,
     };
-    layout.setNotifyHandler((pane, t, b) => this.notifs.add(pane.paneId, t, b, ws.id));
-    layout.onFocusChange = (pane) => this.notifs.clearForPane(pane.paneId);
+    // Key notifications by SURFACE paneId (the active tab), not container paneId,
+    // so each tab's ring is independent. On focus, clear only the now-active
+    // surface's ring — not every tab in the container.
+    layout.setNotifyHandler((pane, t, b) => {
+      const surfaceId = (pane.activeSurface ?? pane).paneId;
+      this.notifs.add(surfaceId, t, b, ws.id);
+    });
+    layout.onFocusChange = (pane) => {
+      const surfaceId = (pane.activeSurface ?? pane).paneId;
+      this.notifs.clearForPane(surfaceId);
+    };
     layout.onPaneClosed = (paneId) => this.notifs.removePane(paneId);
     // While dragging a pane, hide browser webviews so the drop fires on the DOM
     // even over a native browser pane; restore after.
@@ -661,7 +719,6 @@ class App {
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private metaBusy = false;
-  private lastMetaSig = "";
   private async refreshMeta(): Promise<void> {
     if (document.hidden) return; // minimized: don't spawn git/gh/netstat
     if (this.metaBusy) return; // previous poll still in flight (hung git/gh) — don't pile up
@@ -670,12 +727,9 @@ class App {
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
-    // ONLY when the relevant state actually changed (workspace / focused pane /
-    // cwd). No timed heartbeat — the indicator must never appear on its own
-    // without a reason. Unchanged => skip entirely (no subprocess, no flicker).
-    const sig = `${w.id}|${fs.paneId}|${cwd}`;
-    if (sig === this.lastMetaSig) return;
-    this.lastMetaSig = sig;
+    // No sig-based suppression: the timed poll re-fetches git branch/dirty/PR
+    // each tick so in-place changes show. The JSON.stringify diff below prevents
+    // re-render flicker; metaBusy prevents pile-up on a hung git/gh.
     this.metaBusy = true;
     this.setMetaLoading(true); // green progress line while refreshing
     try {
@@ -688,6 +742,10 @@ class App {
           ? await invoke<number[]>("pane_ports", { id: (fs as Pane).getPtyId() })
           : [];
       const next = { cwd, branch: info.branch, dirty: info.dirty, pr: info.pr, ports };
+      // Re-validate: if the workspace was closed while the awaits were in flight
+      // (closeWorkspace deletes meta and splices it out), drop the result —
+      // otherwise meta.set re-creates the deleted entry and leaks it forever.
+      if (!this.workspaces.includes(w)) return;
       if (JSON.stringify(next) !== JSON.stringify(this.meta.get(w.id))) {
         this.meta.set(w.id, next);
         this.renderSidebar();
@@ -805,16 +863,20 @@ class App {
   }
 
   private openFind(): void {
-    const s = this.activeLayout.focusedSurface;
+    // Do NOT capture `s` once at open time — the FindBar is a persistent overlay.
+    // If the user closes the pane (Ctrl+W) or switches workspaces while Find is
+    // open, a stale closed/disposed surface would be driven. Re-resolve lazily
+    // inside each callback so we always target the current focused surface.
     let q = "";
     this.findBar.open({
       search: (query) => {
         q = query;
-        this.runFind(s, q, "next");
+        this.runFind(this.activeLayout.focusedSurface, q, "next");
       },
-      next: () => this.runFind(s, q, "next"),
-      prev: () => this.runFind(s, q, "prev"),
+      next: () => this.runFind(this.activeLayout.focusedSurface, q, "next"),
+      prev: () => this.runFind(this.activeLayout.focusedSurface, q, "prev"),
       closed: () => {
+        const s = this.activeLayout.focusedSurface;
         if (s.kind === "terminal") (s as Pane).clearSearch();
       },
     });
@@ -1024,21 +1086,45 @@ class App {
   }
 
   // ---- control protocol ----
+  /** Resolve a surface for send_text / send_key / read_text / pane.clear.
+   *  When surface is a number, searches ALL workspaces (agent hooks fire from
+   *  panes in any workspace, not just the active one — mirrors findContainer).
+   *  Falls back to the active workspace's focused surface only when surface is
+   *  undefined. */
   private targetPane(surface?: number): PaneLike | null {
-    return typeof surface === "number"
-      ? this.activeLayout.surfaceById(surface)
-      : this.activeLayout.focusedSurface;
-  }
-  private browserSurface(surface?: number): number | null {
-    const layout = this.activeLayout;
     if (typeof surface === "number") {
-      const s = layout.surfaceById(surface);
-      if (s && s.kind === "browser") return s.paneId;
+      for (const ws of this.workspaces) {
+        const s = ws.layout.surfaceById(surface);
+        if (s) return s;
+      }
+      return null;
     }
+    return this.activeLayout.focusedSurface;
+  }
+  /** Resolve the target browser surface id for the "browser" control verb.
+   *  When surface is a number, resolution is STRICT:
+   *    - not found across any workspace -> {error}
+   *    - found but kind !== "browser"   -> {error}  (never silently retarget)
+   *  When surface is undefined, use focused-if-browser else first browser
+   *  in tree order (existing fallback behavior, intentional for unaddressed ops). */
+  private browserSurface(surface?: number): { paneId: number } | { error: string } | null {
+    if (typeof surface === "number") {
+      for (const ws of this.workspaces) {
+        const s = ws.layout.surfaceById(surface);
+        if (s) {
+          if (s.kind !== "browser")
+            return { error: `surface ${surface} is not a browser (kind: ${s.kind})` };
+          return { paneId: s.paneId };
+        }
+      }
+      return { error: `no surface ${surface}` };
+    }
+    // undefined -> use focused-then-first-browser fallback
+    const layout = this.activeLayout;
     const fs = layout.focusedSurface;
-    if (fs.kind === "browser") return fs.paneId;
+    if (fs.kind === "browser") return { paneId: fs.paneId };
     const b = layout.serialize().find((x) => x.kind === "browser");
-    return b ? b.id : null;
+    return b ? { paneId: b.id } : null;
   }
 
   private async dispatch(cmd: ControlCommand): Promise<ControlResult> {
@@ -1145,9 +1231,12 @@ class App {
         layout.splitFocused(newBrowserLeaf(cmd.url));
         return { ok: true };
       case "browser": {
-        const sid = this.browserSurface(cmd.surface);
-        if (sid == null) return { ok: false, error: "no browser surface" };
-        return await browserDispatch(sid, cmd.verb ?? "", cmd.args ?? []);
+        const bres = this.browserSurface(cmd.surface);
+        // null  -> no browser pane exists at all
+        // error -> caller supplied an explicit surface id that was wrong/not a browser
+        if (bres == null) return { ok: false, error: "no browser surface" };
+        if ("error" in bres) return { ok: false, error: bres.error };
+        return await browserDispatch(bres.paneId, cmd.verb ?? "", cmd.args ?? []);
       }
       case "notify": {
         const hit =

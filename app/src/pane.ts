@@ -242,6 +242,11 @@ export class Pane implements PaneLike {
     });
     const exitUn = await listen(`pty://${id}/exit`, () => {
       if (this.disposed) return;
+      // Disable xterm input immediately so keystrokes typed into the dead
+      // terminal do not race against the backend's pty_write (which now returns
+      // Err for an unknown/closed id). dispose() will also set this.disposed,
+      // but that only happens after the async onExit chain completes.
+      this.term.options.disableStdin = true;
       this.term.write("\r\n[process exited]\r\n");
       this.onExit?.(this);
     });
@@ -257,7 +262,11 @@ export class Pane implements PaneLike {
       // UTF-8 encode: typed accented chars / emoji are multi-byte, so a
       // charCodeAt&0xff truncation would corrupt them. TextEncoder yields the
       // correct UTF-8 byte sequence (control chars / ESC are ASCII, unaffected).
-      invoke("pty_write", { id, data: Array.from(new TextEncoder().encode(data)) });
+      // .catch logs the error so a dropped keystroke (e.g. pty_write returning
+      // Err for an unknown/closed id) is visible instead of a silent no-op.
+      invoke("pty_write", { id, data: Array.from(new TextEncoder().encode(data)) }).catch(
+        (e) => console.warn("pty_write:", e),
+      );
     });
 
     // Disposed during the awaits above (e.g. session restore disposes the
@@ -314,7 +323,10 @@ export class Pane implements PaneLike {
   sendText(text: string): void {
     if (this.ptyId < 0) return;
     // UTF-8 (accents/emoji survive); ASCII control/ESC sequences pass through.
-    invoke("pty_write", { id: this.ptyId, data: Array.from(new TextEncoder().encode(text)) });
+    // .catch: surface.send_text on a dead pty returns Err; log so it's visible.
+    invoke("pty_write", { id: this.ptyId, data: Array.from(new TextEncoder().encode(text)) }).catch(
+      (e) => console.warn("pty_write (sendText):", e),
+    );
   }
 
   hasSelection(): boolean {

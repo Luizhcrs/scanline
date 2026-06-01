@@ -72,6 +72,12 @@ export class CommandPalette {
   }
 
   open(items: PaletteItem[], placeholder = "Type a command…"): void {
+    // Reset sel to 0 for a fresh synchronous open; renderRows() preserves sel
+    // across async re-renders but a brand-new item list should start at top.
+    clearTimeout(this.debounce);
+    this.debounce = undefined;
+    ++this.gen;
+    this.sel = 0;
     this.items = items;
     this.provider = null;
     this.restore = document.activeElement as HTMLElement;
@@ -88,6 +94,11 @@ export class CommandPalette {
     provider: (q: string) => Promise<PaletteItem[]>,
     placeholder = "Search…",
   ): void {
+    // Bump gen and cancel any in-flight debounce so a prior session's async
+    // result cannot land in this new session (myGen !== this.gen guard below).
+    clearTimeout(this.debounce);
+    this.debounce = undefined;
+    ++this.gen;
     this.items = [];
     this.provider = provider;
     this.restore = document.activeElement as HTMLElement;
@@ -117,6 +128,13 @@ export class CommandPalette {
   }
 
   close(): void {
+    // Cancel any pending debounce and bump gen so in-flight async provider
+    // callbacks (from onInput) find myGen !== this.gen and bail without
+    // writing to this.filtered after the palette is closed.
+    clearTimeout(this.debounce);
+    this.debounce = undefined;
+    ++this.gen;
+    this.provider = null; // guard: async callback checks provider is still set
     if (this.isOpen) popOverlay("palette");
     this.overlay.style.display = "none";
     this.restore?.focus();
@@ -138,11 +156,16 @@ export class CommandPalette {
   }
 
   private renderRows(): void {
-    this.sel = 0;
+    // Preserve the cursor position across async re-renders: clamp this.sel to
+    // the new result length rather than always resetting to 0. This means
+    // arrow-key selection survives a provider round-trip when the result set
+    // stays the same size or shrinks. The synchronous render() that re-sorts
+    // a fresh item list intentionally resets sel to 0 via open().
+    this.sel = Math.max(0, Math.min(this.sel, this.filtered.length - 1));
     this.listEl.replaceChildren(
       ...this.filtered.map((it, i) => {
         const row = document.createElement("div");
-        row.className = "palette-row" + (i === 0 ? " sel" : "");
+        row.className = "palette-row" + (i === this.sel ? " sel" : "");
         const lbl = document.createElement("span");
         lbl.textContent = it.label;
         row.append(lbl);

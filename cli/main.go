@@ -51,7 +51,13 @@ func rpc(method string, fields map[string]any) (map[string]any, error) {
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		return nil, err
 	}
-	line, _ := bufio.NewReader(f).ReadString('\n')
+	// Capture the ReadString error. EOF without trailing newline is acceptable
+	// as long as we got some bytes (the server may omit the final newline).
+	// A blank line with a real error means the server closed the connection.
+	line, rdErr := bufio.NewReader(f).ReadString('\n')
+	if rdErr != nil && line == "" {
+		return nil, fmt.Errorf("Scanline closed the connection: %w", rdErr)
+	}
 	var resp map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &resp); err != nil {
 		return nil, fmt.Errorf("bad reply %q: %w", strings.TrimSpace(line), err)
@@ -216,13 +222,19 @@ func main() {
 		}
 		send("surface.send_key", m)
 	case "notify":
-		rest := args[1:]
+		// Parse --title at any position in the argument list, not only as the
+		// first arg. This lets callers write e.g.: notify "body" --title "T".
 		title := ""
-		if len(rest) >= 2 && rest[0] == "--title" {
-			title = rest[1]
-			rest = rest[2:]
+		var notifyRest []string
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--title" && i+1 < len(args) {
+				title = args[i+1]
+				i++ // consume value
+				continue
+			}
+			notifyRest = append(notifyRest, args[i])
 		}
-		surface, body := callerSurface(rest)
+		surface, body := callerSurface(notifyRest)
 		m := map[string]any{"title": title, "body": strings.Join(body, " ")}
 		if surface != nil {
 			m["surface"] = surface
@@ -244,12 +256,24 @@ func main() {
 				}
 			}
 		case "rename":
-			if len(args) >= 3 {
-				if n, err := strconv.Atoi(args[2]); err == nil {
-					m["workspace"] = n
-				}
-				m["name"] = strings.Join(args[3:], " ")
+			// Require a numeric workspace id and a non-empty name; silent no-op
+			// would send a corrupt request with a missing/zero workspace field.
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "scanline ws rename: expected <id> <name>")
+				os.Exit(1)
 			}
+			n, err := strconv.Atoi(args[2])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "scanline ws rename: id must be numeric, got %q\n", args[2])
+				os.Exit(1)
+			}
+			name := strings.Join(args[3:], " ")
+			if strings.TrimSpace(name) == "" {
+				fmt.Fprintln(os.Stderr, "scanline ws rename: name must not be empty")
+				os.Exit(1)
+			}
+			m["workspace"] = n
+			m["name"] = name
 		}
 		send("workspace."+sub, m)
 	case "surface":
@@ -260,9 +284,18 @@ func main() {
 		m := map[string]any{}
 		if sub == "select" && len(args) >= 3 {
 			// 1-based for the user (matches Ctrl+1..8); protocol delta is 0-based.
-			if n, err := strconv.Atoi(args[2]); err == nil {
-				m["delta"] = n - 1
+			// Validate: Atoi must succeed and result must be >= 1 so we never send
+			// a negative or zero delta, which would silently mis-select.
+			n, err := strconv.Atoi(args[2])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "scanline surface select: index must be numeric, got %q\n", args[2])
+				os.Exit(1)
 			}
+			if n < 1 {
+				fmt.Fprintf(os.Stderr, "scanline surface select: index must be >= 1, got %d\n", n)
+				os.Exit(1)
+			}
+			m["delta"] = n - 1
 		}
 		if sub == "rename" {
 			surface, rest := callerSurface(args[2:])
@@ -295,6 +328,15 @@ func main() {
 		st := "idle"
 		if len(rest) > 0 {
 			st = rest[0]
+		}
+		// Only the four values that paneContainer.ts whitelists are valid.
+		// Reject anything else here so a typo surfaces immediately rather than
+		// being silently dropped or causing a frontend state inconsistency.
+		switch st {
+		case "running", "waiting", "idle", "error":
+		default:
+			fmt.Fprintf(os.Stderr, "scanline status: unknown status %q (want running|waiting|idle|error)\n", st)
+			os.Exit(1)
 		}
 		m := map[string]any{"status": st}
 		if surface != nil {
