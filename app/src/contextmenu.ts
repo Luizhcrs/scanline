@@ -2,6 +2,8 @@
  * A custom right-click menu. Replaces WebView2's native context menu (Back /
  * Refresh / Inspect) in the app chrome with Scanline's own actions.
  */
+import { pushOverlay, popOverlay } from "./overlay";
+
 export interface MenuItem {
   label?: string;
   hint?: string;
@@ -58,6 +60,7 @@ export class ContextMenu {
       this.el.appendChild(row);
     }
     // Show off-screen first to measure, then clamp into the viewport.
+    if (this.el.style.display === "none") pushOverlay();
     this.el.style.display = "block";
     this.el.style.left = "0px";
     this.el.style.top = "0px";
@@ -69,6 +72,7 @@ export class ContextMenu {
   }
 
   hide(): void {
+    if (this.el.style.display !== "none") popOverlay();
     this.el.style.display = "none";
   }
 }

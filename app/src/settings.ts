@@ -1,4 +1,5 @@
 import { config, type ScanlineConfig } from "./config";
+import { pushOverlay, popOverlay } from "./overlay";
 
 /**
  * Settings window: a modal form over scanline.json. Edits fonts, theme, and
@@ -85,11 +86,13 @@ export class SettingsPanel {
     btns.append(file, cancel, save);
     this.card.appendChild(btns);
 
+    if (!this.isOpen()) pushOverlay();
     this.overlay.style.display = "flex";
     uiFont.focus();
   }
 
   close(): void {
+    if (this.isOpen()) popOverlay();
     this.overlay.style.display = "none";
   }
 

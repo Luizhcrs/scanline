@@ -11,6 +11,7 @@ import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
 import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
 import { SettingsPanel } from "./settings";
+import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
@@ -152,6 +153,12 @@ class App {
 
     this.installResizer();
     this.installContextMenu();
+    // Native browser webviews paint above all DOM overlays; hide them while any
+    // overlay (settings, help, palette, menu, feed) is open, restore after.
+    onOverlayChange((active) => {
+      if (!this.activeWs) return;
+      this.activeLayout.setVisible(!active);
+    });
     // Restore the prior session (or open a fresh workspace) before anything
     // that touches activeWs runs against it.
     void this.boot();
@@ -251,6 +258,7 @@ class App {
     if (this.helpEl) {
       this.helpEl.remove();
       this.helpEl = undefined;
+      popOverlay();
       return;
     }
     const overlay = document.createElement("div");
@@ -329,6 +337,7 @@ class App {
     overlay.appendChild(card);
     document.body.appendChild(overlay);
     this.helpEl = overlay;
+    pushOverlay();
   }
 
   private fullscreen = false;
@@ -1183,6 +1192,12 @@ class App {
       case "ui.fullscreen":
         await this.toggleFullscreen();
         return { ok: true };
+      case "ui.help":
+        this.toggleHelp();
+        return { ok: true };
+      case "ui.settings":
+        this.settings.open();
+        return { ok: true };
       case "config.edit":
         await invoke("edit_config");
         return { ok: true };
@@ -1214,6 +1229,7 @@ const CAPABILITIES = [
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",
   "workspace.close", "workspace.rename",
   "ui.palette", "ui.switcher", "ui.find", "ui.findInDir", "ui.fullscreen",
+  "ui.help", "ui.settings",
   "config.edit", "config.reload",
   "system.ping", "system.identify", "system.capabilities",
 ];

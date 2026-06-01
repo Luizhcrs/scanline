@@ -3,6 +3,8 @@
  * blocking request; ask() shows a card with option buttons and resolves with
  * the clicked option — the caller (over the pipe) stays blocked until then.
  */
+import { pushOverlay, popOverlay } from "./overlay";
+
 export interface FeedCard {
   title: string;
   body: string;
@@ -50,7 +52,10 @@ export class FeedPanel {
         row.remove();
         // Panel hides once no cards remain — derived from the DOM, never a
         // separate counter that could desync.
-        if (!this.list.childElementCount) this.panel.style.display = "none";
+        if (!this.list.childElementCount) {
+          this.panel.style.display = "none";
+          popOverlay();
+        }
         resolve(decision);
       };
       const timer = setTimeout(() => settle(""), FEED_TIMEOUT_MS);
@@ -62,7 +67,9 @@ export class FeedPanel {
         btns.append(b);
       });
       row.append(title, body, btns);
+      const wasEmpty = !this.list.childElementCount;
       this.list.appendChild(row);
+      if (wasEmpty) pushOverlay();
       this.panel.style.display = "flex";
     });
   }

@@ -2,6 +2,8 @@
  * Command palette (fuzzy command/switcher overlay) and a find bar. DOM-only;
  * the app supplies the items / search handlers.
  */
+import { pushOverlay, popOverlay } from "./overlay";
+
 export interface PaletteItem {
   id: string;
   label: string;
@@ -75,6 +77,7 @@ export class CommandPalette {
     this.restore = document.activeElement as HTMLElement;
     this.input.value = "";
     this.input.placeholder = placeholder;
+    if (!this.isOpen) pushOverlay();
     this.overlay.style.display = "flex";
     this.render();
     this.input.focus();
@@ -90,6 +93,7 @@ export class CommandPalette {
     this.restore = document.activeElement as HTMLElement;
     this.input.value = "";
     this.input.placeholder = placeholder;
+    if (!this.isOpen) pushOverlay();
     this.overlay.style.display = "flex";
     this.filtered = [];
     this.renderRows();
@@ -113,6 +117,7 @@ export class CommandPalette {
   }
 
   close(): void {
+    if (this.isOpen) popOverlay();
     this.overlay.style.display = "none";
     this.restore?.focus();
   }
@@ -240,12 +245,14 @@ export class FindBar {
 
   open(handlers: FindHandlers): void {
     this.handlers = handlers;
+    if (this.bar.style.display === "none") pushOverlay();
     this.bar.style.display = "flex";
     this.input.value = "";
     this.input.focus();
   }
 
   close(): void {
+    if (this.bar.style.display !== "none") popOverlay();
     this.bar.style.display = "none";
     this.handlers?.closed();
     this.handlers = undefined;
