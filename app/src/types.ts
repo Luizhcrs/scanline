@@ -55,7 +55,7 @@ export interface PaneLike {
    *  (swap this pane with the dragged paneId). */
   onPaneDragStart?: () => void;
   onPaneDragEnd?: () => void;
-  onPaneDrop?: (fromPaneId: number) => void;
+  onPaneMove?: (toPaneId: number) => void;
   /** Set the agent lifecycle status indicator (running/waiting/idle/error). */
   setStatus?(status: string): void;
   /** Override the display label (user rename). Empty string clears it back to

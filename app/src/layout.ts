@@ -283,7 +283,7 @@ export class Layout {
     };
     pane.onPaneDragStart = () => this.onPaneDragStart?.();
     pane.onPaneDragEnd = () => this.onPaneDragEnd?.();
-    pane.onPaneDrop = (fromId) => this.swapPanes(fromId, pane.paneId);
+    pane.onPaneMove = (toId) => this.swapPanes(pane.paneId, toId);
     pane.keyHandler = this.keyHandler;
   }
 

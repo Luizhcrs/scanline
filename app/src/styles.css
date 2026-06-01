@@ -51,10 +51,17 @@ body,
   overflow: hidden;
   background: var(--bg);
 }
-/* Maximized: pull content up off the ~7px the window overhangs under the
-   taskbar, so the bottom pane border isn't hidden behind it. */
-body.win-max #app {
-  height: calc(100% - 8px);
+/* No text selection on the chrome (tabs, buttons, bars, sidebar, menus); only
+   real text fields keep it. The terminal manages its own selection; the
+   browser panes are native webviews unaffected by this. */
+#app {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* App shell: vertical-tabs sidebar + content. */

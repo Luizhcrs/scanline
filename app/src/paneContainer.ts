@@ -29,7 +29,7 @@ export class PaneContainer implements PaneLike {
   onOpenUrl?: (pane: PaneLike, url: string) => void;
   onPaneDragStart?: () => void;
   onPaneDragEnd?: () => void;
-  onPaneDrop?: (fromPaneId: number) => void;
+  onPaneMove?: (toPaneId: number) => void;
 
   // Setting the key handler (Layout does `pane.keyHandler = fn`) propagates to
   // every surface so xterm's custom-key path sees app shortcuts.
@@ -55,32 +55,46 @@ export class PaneContainer implements PaneLike {
     this.body.className = "surface-body";
 
     this.el.append(this.strip, this.body);
+    this.el.dataset.paneId = String(this.paneId); // for drag hit-testing
     this.adoptSurface(first);
     this.surfaces.push(first);
-    this.installPaneDrag();
   }
 
-  /** Drag the tab strip (its empty area, not a tab) onto another pane to swap
-   *  their grid positions. Browsers are hidden during the drag (by the App) so
-   *  the drop fires even over a native browser webview. */
-  private installPaneDrag(): void {
-    // Drop side (any pane is a target). The drag side is the grip in renderStrip.
-    this.el.addEventListener("dragover", (e) => {
-      if (!e.dataTransfer?.types.includes("scanline/pane")) return;
-      e.preventDefault();
-      this.el.classList.add("drop-target");
-    });
-    this.el.addEventListener("dragleave", (e) => {
-      if (e.target === this.el) this.el.classList.remove("drop-target");
-    });
-    this.el.addEventListener("drop", (e) => {
-      this.el.classList.remove("drop-target");
-      const from = Number(e.dataTransfer?.getData("scanline/pane"));
-      if (!Number.isNaN(from) && from !== this.paneId) {
-        e.preventDefault();
-        this.onPaneDrop?.(from);
-      }
-    });
+  /** Pointer-based pane drag from the grip handle. Pointer events (not HTML5
+   *  DnD) because hiding the native browser webviews mid-drag — needed so the
+   *  drop can land over a browser pane — cancels an HTML5 drag. With pointer
+   *  capture the gesture survives, and elementFromPoint hit-tests the DOM once
+   *  the webviews are hidden. */
+  private startPaneDrag(grip: HTMLElement, e: PointerEvent): void {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    this.onPaneDragStart?.(); // hide browser webviews so DOM is hit-testable
+    let target: HTMLElement | null = null;
+    const clearHighlight = () => {
+      document
+        .querySelectorAll(".pane-container.drop-target")
+        .forEach((el) => el.classList.remove("drop-target"));
+    };
+    const paneUnder = (x: number, y: number): HTMLElement | null => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const c = el?.closest<HTMLElement>(".pane-container") ?? null;
+      return c && c.dataset.paneId !== String(this.paneId) ? c : null;
+    };
+    const move = (ev: PointerEvent) => {
+      clearHighlight();
+      target = paneUnder(ev.clientX, ev.clientY);
+      target?.classList.add("drop-target");
+    };
+    const up = (ev: PointerEvent) => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      clearHighlight();
+      const dst = paneUnder(ev.clientX, ev.clientY);
+      this.onPaneDragEnd?.(); // restore browser webviews
+      if (dst?.dataset.paneId) this.onPaneMove?.(Number(dst.dataset.paneId));
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
   }
 
   get kind(): "terminal" | "browser" {
@@ -305,14 +319,8 @@ export class PaneContainer implements PaneLike {
     const grip = document.createElement("div");
     grip.className = "pane-grip";
     grip.title = "Drag to move this pane";
-    grip.draggable = true;
-    grip.ondragstart = (e) => {
-      e.dataTransfer?.setData("scanline/pane", String(this.paneId));
-      this.onPaneDragStart?.();
-    };
-    grip.ondragend = () => {
-      this.el.classList.remove("drop-target");
-      this.onPaneDragEnd?.();
+    grip.onpointerdown = (e) => {
+      if (e.button === 0) this.startPaneDrag(grip, e);
     };
     this.strip.replaceChildren(grip, ...tabs, add);
   }

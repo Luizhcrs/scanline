@@ -169,23 +169,6 @@ class App {
     void this.boot();
 
     window.addEventListener("resize", () => this.activeLayout.refitAll());
-    // A maximized Windows window overhangs the work area by ~7px on each edge
-    // (invisible resize border). The webview fills the full rect, so the bottom
-    // ~7px of content lands UNDER the taskbar. Tag <body> when maximized and
-    // inset the bottom in CSS so nothing hides behind the taskbar.
-    {
-      const win = getCurrentWindow();
-      const syncMax = async () => {
-        try {
-          document.body.classList.toggle("win-max", await win.isMaximized());
-          this.activeLayout?.refitAll();
-        } catch {
-          /* window API not ready */
-        }
-      };
-      void win.onResized(() => void syncMax());
-      void syncMax();
-    }
     // Best-effort final save when the window closes (the 8s autosave covers
     // crashes / power loss).
     window.addEventListener("beforeunload", () => {
