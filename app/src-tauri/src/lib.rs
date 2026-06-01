@@ -481,18 +481,6 @@ const DEFAULT_CONFIG: &str = r##"{
 }
 "##;
 
-/// Append a line to %APPDATA%\scanline\activity.log (temporary hang forensics:
-/// on a freeze the OS kills the app, so the log tail shows the last activity).
-#[tauri::command]
-fn log_activity(line: String) {
-    if let Some(p) = config_path().map(|c| c.with_file_name("activity.log")) {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
-            let _ = writeln!(f, "{line}");
-        }
-    }
-}
-
 /// Load scanline.json, or null if it does not exist yet.
 #[tauri::command]
 fn load_config() -> Result<Option<String>, String> {
@@ -612,8 +600,16 @@ async fn browser_open(
         let result = (|| {
             let window = app2.get_window("main").ok_or("main window not found")?;
             let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
-            let builder =
-                WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed));
+            // Event-driven URL tracking: emit the URL on each navigation instead
+            // of the frontend polling location.href over CDP every couple of
+            // seconds — that CDP call ran on the main thread and could freeze the
+            // window's message pump (the Application Hang).
+            let nav_app = app2.clone();
+            let builder = WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed))
+                .on_navigation(move |u| {
+                    let _ = nav_app.emit(&format!("browser://{id}/url"), u.to_string());
+                    true
+                });
             window
                 .add_child(
                     builder,
@@ -1194,10 +1190,6 @@ pub fn run() {
         .manage(ControlPending::default())
         .setup(|app| {
             start_control_server(app.handle().clone());
-            // Fresh activity log each launch (hang forensics).
-            if let Some(p) = config_path().map(|c| c.with_file_name("activity.log")) {
-                let _ = std::fs::remove_file(&p);
-            }
             #[cfg(windows)]
             if let Some(win) = app.get_webview_window("main") {
                 apply_dark_titlebar(&win);
@@ -1227,8 +1219,7 @@ pub fn run() {
             load_session,
             load_config,
             edit_config,
-            save_config,
-            log_activity
+            save_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

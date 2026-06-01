@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { type PaneLike, nextPaneId } from "./types";
 
 /** Normalize user input into a URL (add scheme, or web-search bare terms). */
@@ -185,7 +186,7 @@ export class BrowserPane implements PaneLike {
           // Force the next refit to re-apply bounds: a post-create set_position/
           // set_size is the composition nudge that makes WebView2 paint.
           this.lastRect = { x: -1, y: -1, w: -1, h: -1 };
-          this.startUrlPoll();
+          this.startUrlListener();
         })
         .catch((err) => {
           this.creating = false;
@@ -208,7 +209,6 @@ export class BrowserPane implements PaneLike {
 
   /** Hide/show the native webview when the surface tab (de)activates. */
   setVisible(visible: boolean): void {
-    this.isVisible = visible;
     if (this.created) {
       invoke("browser_visible", { id: this.paneId, visible }).catch(() => {});
     }
@@ -216,41 +216,22 @@ export class BrowserPane implements PaneLike {
   }
 
   // ---- URL tracking ----
-  // The native webview navigates on its own (links, redirects, JS). Our bridge
-  // is request/reply (no CDP event stream wired through), so poll location.href
-  // while visible and reflect it into the address bar.
-  private isVisible = true;
-  private urlPoll?: ReturnType<typeof setInterval>;
-  private pollInFlight = false;
-  private startUrlPoll(): void {
-    if (this.urlPoll) return;
-    this.urlPoll = setInterval(() => void this.syncUrl(), 2000);
-  }
-  private async syncUrl(): Promise<void> {
-    if (!this.created || this.disposed || !this.isVisible || document.hidden) return;
-    // Never have two CDP calls outstanding: each runs a closure on the native
-    // main thread, so if one stalls the 2s timer would otherwise pile them up
-    // and freeze the window's message pump (Application Hang).
-    if (this.pollInFlight) return;
-    this.pollInFlight = true;
-    void invoke("log_activity", { line: `${Date.now()} urlpoll ${this.paneId}` }).catch(() => {});
-    try {
-      const raw = await invoke<string>("browser_cdp", {
-        id: this.paneId,
-        method: "Runtime.evaluate",
-        params: JSON.stringify({ expression: "location.href", returnByValue: true }),
-      });
-      const href = JSON.parse(raw)?.result?.value;
-      if (typeof href === "string" && href && href !== this.pendingUrl) {
-        this.pendingUrl = href;
-        // Don't overwrite the address bar while the user is editing it.
-        if (document.activeElement !== this.urlInput) this.urlInput.value = href;
-      }
-    } catch {
-      /* page mid-navigation / not ready — try again next tick */
-    } finally {
-      this.pollInFlight = false;
-    }
+  // Event-driven (NOT polling): the Rust side fires browser://<id>/url on each
+  // navigation. The old CDP poll ran a COM call on the native main thread every
+  // couple seconds and could freeze the window's message pump (Application Hang).
+  private urlUnlisten?: UnlistenFn;
+  private startUrlListener(): void {
+    if (this.urlUnlisten) return;
+    void listen<string>(`browser://${this.paneId}/url`, (e) => {
+      const href = e.payload;
+      if (this.disposed || typeof href !== "string" || !href || href === this.pendingUrl) return;
+      this.pendingUrl = href;
+      // Don't overwrite the address bar while the user is editing it.
+      if (document.activeElement !== this.urlInput) this.urlInput.value = href;
+    }).then((un) => {
+      if (this.disposed) un();
+      else this.urlUnlisten = un;
+    });
   }
 
   focus(): void {
@@ -267,7 +248,7 @@ export class BrowserPane implements PaneLike {
     if (this.disposed) return;
     this.disposed = true;
     this.resizeObserver?.disconnect();
-    if (this.urlPoll) clearInterval(this.urlPoll);
+    this.urlUnlisten?.();
     if (this.created) {
       await invoke("browser_close", { id: this.paneId }).catch(() => {});
     }

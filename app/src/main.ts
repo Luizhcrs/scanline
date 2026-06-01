@@ -22,12 +22,6 @@ const newCommandLeaf = (command: string) =>
 const newBrowserLeaf = (url?: string) =>
   new PaneContainer(new BrowserPane(url), () => new Pane());
 
-/** Temporary hang forensics: append a line to %APPDATA%\scanline\activity.log
- *  so a freeze (which gets the app killed) leaves a trail of the last activity. */
-const logAct = (s: string): void => {
-  void invoke("log_activity", { line: `${Date.now()} ${s}` }).catch(() => {});
-};
-
 /** Default chords for the rebindable actions (overridable via config). */
 const DEFAULT_BINDINGS: Record<string, string> = {
   palette: "ctrl+shift+p",
@@ -188,11 +182,8 @@ class App {
     // Poll per-workspace sidebar metadata (cwd / git branch / ports).
     setInterval(() => void this.refreshMeta(), 4000);
 
-    // Forensic heartbeat + per-request log (find what runs when it freezes).
-    setInterval(() => logAct("tick"), 2000);
     void listen<ControlCommand>("control://request", (e) => {
       const cmd = e.payload;
-      logAct(`dispatch ${cmd.method}${cmd.verb ? " " + cmd.verb : ""}`);
       this.dispatch(cmd)
         .then((r) => invoke("control_reply", { id: cmd.id, response: { id: cmd.id, ...r } }))
         .catch((err) =>
