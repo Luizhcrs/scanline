@@ -51,6 +51,11 @@ export interface PaneLike {
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   /** Fired when a link in the terminal is Ctrl+clicked (open as a browser pane). */
   onOpenUrl?: (pane: PaneLike, url: string) => void;
+  /** Pane drag-to-reposition: start/end (toggle browser-webview hiding) and drop
+   *  (swap this pane with the dragged paneId). */
+  onPaneDragStart?: () => void;
+  onPaneDragEnd?: () => void;
+  onPaneDrop?: (fromPaneId: number) => void;
   /** Set the agent lifecycle status indicator (running/waiting/idle/error). */
   setStatus?(status: string): void;
   /** Override the display label (user rename). Empty string clears it back to

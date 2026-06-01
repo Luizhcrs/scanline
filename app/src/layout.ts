@@ -36,6 +36,28 @@ export class Layout {
   onFocusChange: ((pane: PaneLike) => void) | null = null;
   /** Called when a leaf is closed (used to prune its notifications). */
   onPaneClosed: ((paneId: number) => void) | null = null;
+  /** Pane drag (reposition) start/end — App hides/restores browser webviews so
+   *  drops land on the DOM even over a native browser pane. */
+  onPaneDragStart: (() => void) | null = null;
+  onPaneDragEnd: (() => void) | null = null;
+
+  /** Swap two leaf panes' positions in the grid (drag-to-reposition). */
+  swapPanes(aId: number, bId: number): void {
+    if (aId === bId) return;
+    const a = this.leafOf(this.root, aId);
+    const b = this.leafOf(this.root, bId);
+    if (!a || !b) return;
+    const tmp = a.pane;
+    a.pane = b.pane;
+    b.pane = tmp;
+    this.render();
+    this.setFocus(b.pane);
+  }
+
+  private leafOf(node: Node, id: number): LeafNode | null {
+    if (node.kind === "leaf") return node.pane.paneId === id ? node : null;
+    return this.leafOf(node.a, id) ?? this.leafOf(node.b, id);
+  }
 
   constructor(private container: HTMLElement, first: PaneLike) {
     this.root = { kind: "leaf", pane: first };
@@ -259,6 +281,9 @@ export class Layout {
       this.setFocus(p);
       this.splitFocused(this.browserFactory(url));
     };
+    pane.onPaneDragStart = () => this.onPaneDragStart?.();
+    pane.onPaneDragEnd = () => this.onPaneDragEnd?.();
+    pane.onPaneDrop = (fromId) => this.swapPanes(fromId, pane.paneId);
     pane.keyHandler = this.keyHandler;
   }
 

@@ -27,6 +27,9 @@ export class PaneContainer implements PaneLike {
   onSplitRequest?: (pane: PaneLike) => void;
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   onOpenUrl?: (pane: PaneLike, url: string) => void;
+  onPaneDragStart?: () => void;
+  onPaneDragEnd?: () => void;
+  onPaneDrop?: (fromPaneId: number) => void;
 
   // Setting the key handler (Layout does `pane.keyHandler = fn`) propagates to
   // every surface so xterm's custom-key path sees app shortcuts.
@@ -54,6 +57,40 @@ export class PaneContainer implements PaneLike {
     this.el.append(this.strip, this.body);
     this.adoptSurface(first);
     this.surfaces.push(first);
+    this.installPaneDrag();
+  }
+
+  /** Drag the tab strip (its empty area, not a tab) onto another pane to swap
+   *  their grid positions. Browsers are hidden during the drag (by the App) so
+   *  the drop fires even over a native browser webview. */
+  private installPaneDrag(): void {
+    this.strip.draggable = true;
+    this.strip.addEventListener("dragstart", (e) => {
+      // A tab starting its own reorder drag handles itself; ignore here.
+      if ((e.target as HTMLElement).closest(".surface-tab")) return;
+      e.dataTransfer?.setData("scanline/pane", String(this.paneId));
+      this.onPaneDragStart?.();
+    });
+    this.strip.addEventListener("dragend", () => {
+      this.el.classList.remove("drop-target");
+      this.onPaneDragEnd?.();
+    });
+    this.el.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types.includes("scanline/pane")) return;
+      e.preventDefault();
+      this.el.classList.add("drop-target");
+    });
+    this.el.addEventListener("dragleave", (e) => {
+      if (e.target === this.el) this.el.classList.remove("drop-target");
+    });
+    this.el.addEventListener("drop", (e) => {
+      this.el.classList.remove("drop-target");
+      const from = Number(e.dataTransfer?.getData("scanline/pane"));
+      if (!Number.isNaN(from) && from !== this.paneId) {
+        e.preventDefault();
+        this.onPaneDrop?.(from);
+      }
+    });
   }
 
   get kind(): "terminal" | "browser" {

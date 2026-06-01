@@ -471,6 +471,10 @@ class App {
     layout.setNotifyHandler((pane, t, b) => this.notifs.add(pane.paneId, t, b, ws.id));
     layout.onFocusChange = (pane) => this.notifs.clearForPane(pane.paneId);
     layout.onPaneClosed = (paneId) => this.notifs.removePane(paneId);
+    // While dragging a pane, hide browser webviews so the drop fires on the DOM
+    // even over a native browser pane; restore after.
+    layout.onPaneDragStart = () => layout.setVisible(false);
+    layout.onPaneDragEnd = () => layout.setVisible(!this.overlayActive);
 
     this.workspaces.push(ws);
     this.selectWorkspace(this.workspaces.length - 1);
@@ -644,6 +648,8 @@ class App {
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private metaBusy = false;
+  private lastMetaSig = "";
+  private lastMetaAt = 0;
   private async refreshMeta(): Promise<void> {
     if (document.hidden) return; // minimized: don't spawn git/gh/netstat
     if (this.metaBusy) return; // previous poll still in flight (hung git/gh) — don't pile up
@@ -652,6 +658,15 @@ class App {
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
+    // Only spawn git/gh/netstat when the relevant state actually changed
+    // (workspace / focused pane / cwd), or as a slow 30s heartbeat to catch
+    // external drift (a commit, a new listening port). Otherwise skip — no
+    // subprocess, no flicker. This stops the blind 4s firing.
+    const sig = `${w.id}|${fs.paneId}|${cwd}`;
+    const now = Date.now();
+    if (sig === this.lastMetaSig && now - this.lastMetaAt < 30000) return;
+    this.lastMetaSig = sig;
+    this.lastMetaAt = now;
     this.metaBusy = true;
     this.setMetaLoading(true); // green progress line while refreshing
     try {
