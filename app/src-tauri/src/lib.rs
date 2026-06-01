@@ -1115,52 +1115,14 @@ fn apply_dark_titlebar(window: &tauri::WebviewWindow) {
                 &color as *const _ as *const core::ffi::c_void,
                 std::mem::size_of::<u32>() as u32,
             );
-            // Constrain maximize to the monitor WORK AREA so the window doesn't
-            // overhang under the taskbar (which left the bottom pane content —
-            // and a black strip — hidden behind it).
-            let _ = windows::Win32::UI::Shell::SetWindowSubclass(hwnd, Some(minmax_subclass), 1, 0);
+            // No WM_GETMINMAXINFO clamp: the window keeps its native frame, and
+            // Windows already maximizes a decorated window to the monitor work
+            // area (respecting the taskbar) while pushing the invisible resize
+            // borders off-screen so the client fills exactly. Clamping ptMaxSize
+            // to the work area instead left those ~8px borders on-screen at the
+            // bottom — the dark bar under the terminal when maximized.
         }
     }
-}
-
-/// Clamp WM_GETMINMAXINFO to the work area so a maximized window fills exactly
-/// the usable desktop (no invisible-border overhang under the taskbar).
-#[cfg(windows)]
-unsafe extern "system" fn minmax_subclass(
-    hwnd: windows::Win32::Foundation::HWND,
-    msg: u32,
-    wparam: windows::Win32::Foundation::WPARAM,
-    lparam: windows::Win32::Foundation::LPARAM,
-    _id: usize,
-    _data: usize,
-) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows::Win32::UI::Shell::DefSubclassProc;
-    use windows::Win32::UI::WindowsAndMessaging::{MINMAXINFO, WM_GETMINMAXINFO};
-    if msg == WM_GETMINMAXINFO {
-        // Run tao's handler FIRST so it applies the configured min size
-        // (ptMinTrackSize). Then override only the MAX fields to clamp maximize
-        // to the work area. Returning early without this dropped the min size.
-        let res = DefSubclassProc(hwnd, msg, wparam, lparam);
-        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(mon, &mut mi).as_bool() {
-            let wa = mi.rcWork;
-            let full = mi.rcMonitor;
-            let mmi = &mut *(lparam.0 as *mut MINMAXINFO);
-            mmi.ptMaxPosition.x = wa.left - full.left;
-            mmi.ptMaxPosition.y = wa.top - full.top;
-            mmi.ptMaxSize.x = wa.right - wa.left;
-            mmi.ptMaxSize.y = wa.bottom - wa.top;
-            mmi.ptMaxTrackSize.x = wa.right - wa.left;
-            mmi.ptMaxTrackSize.y = wa.bottom - wa.top;
-        }
-        return res;
-    }
-    DefSubclassProc(hwnd, msg, wparam, lparam)
 }
 
 pub fn run() {
