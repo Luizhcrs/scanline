@@ -185,9 +185,9 @@ fn pty_spawn(
         use base64::Engine;
         let (lock, cv) = &*buffer;
         loop {
-            let chunk = {
+            // 1) Block until there's output (or the pty ended) — no idle polling.
+            {
                 let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
-                // Block until there's output (or the pty ended) — no idle polling.
                 while b.is_empty() && !done.load(Ordering::SeqCst) {
                     let (g, _) = cv
                         .wait_timeout(b, std::time::Duration::from_millis(50))
@@ -197,19 +197,28 @@ fn pty_spawn(
                 if b.is_empty() {
                     break; // empty + done
                 }
-                // Take at most EMIT_MAX; a big burst stays buffered and the next
-                // loop iteration emits the rest immediately (no wait).
+            }
+            // 2) Coalesce an ~8ms burst before draining. A redrawing TUI (Claude
+            //    Code's status line, progress bars) delivers dozens of tiny ConPTY
+            //    writes per second; emitting each one floods the WebView2 IPC and
+            //    freezes the UI thread (Application Hang / "Not Responding"). One
+            //    event per ~8ms batches them with imperceptible latency.
+            thread::sleep(std::time::Duration::from_millis(8));
+            // 3) Take at most EMIT_MAX; a big burst stays buffered and the next
+            //    loop iteration emits the rest immediately (no extra wait).
+            let chunk = {
+                let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
                 if b.len() <= EMIT_MAX {
                     std::mem::take(&mut *b)
                 } else {
                     b.drain(..EMIT_MAX).collect()
                 }
             };
+            if chunk.is_empty() {
+                continue;
+            }
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
             let _ = app2.emit(&data_event, encoded);
-            // No artificial sleep: 256KB decodes fast and Tauri delivers each
-            // event as its own task, so the event loop services input between
-            // them. Throughput is bound only by how fast the frontend drains.
         }
         let _ = app2.emit(&exit_event, ());
     });
@@ -605,9 +614,19 @@ async fn browser_open(
             // seconds — that CDP call ran on the main thread and could freeze the
             // window's message pump (the Application Hang).
             let nav_app = app2.clone();
+            // Dedup: a heavy page (SPA, redirects, sub-frame loads) fires
+            // on_navigation many times — and this callback runs on the main
+            // thread, so an un-deduped emit per hit floods the message pump.
+            // Only emit when the URL actually changes.
+            let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
             let builder = WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed))
                 .on_navigation(move |u| {
-                    let _ = nav_app.emit(&format!("browser://{id}/url"), u.to_string());
+                    let s = u.to_string();
+                    let mut last = last_url.lock().unwrap_or_else(|e| e.into_inner());
+                    if *last != s {
+                        *last = s.clone();
+                        let _ = nav_app.emit(&format!("browser://{id}/url"), s);
+                    }
                     true
                 });
             window
