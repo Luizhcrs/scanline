@@ -123,6 +123,9 @@ func usage() {
   scanline ws [list|new|select <id>|close <id>|rename <id> <name>|current]  workspaces
   scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
   scanline notif [clear]                             list (or clear) notifications
+  scanline status [--surface N] <running|waiting|idle|error>  set pane status dot
+  scanline hooks <agent> <event>                     agent hook dispatch (stdin JSON)
+  scanline hooks setup [--project]                   install Claude Code hooks
   scanline ping                                      health check
   scanline <agent> [args...]                         launch an agent (fake-tmux)`)
 }
@@ -276,6 +279,19 @@ func main() {
 		} else {
 			send("notif.list", nil)
 		}
+	case "status":
+		surface, rest := callerSurface(args[1:])
+		st := "idle"
+		if len(rest) > 0 {
+			st = rest[0]
+		}
+		m := map[string]any{"status": st}
+		if surface != nil {
+			m["surface"] = surface
+		}
+		send("surface.status", m)
+	case "hooks":
+		runHooks(args[1:])
 	case "ping":
 		send("system.ping", nil)
 	case "__tmux-compat":

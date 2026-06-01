@@ -40,6 +40,7 @@ interface ControlCommand {
   verb?: string;
   ref?: string;
   args?: string[];
+  status?: string;
 }
 interface ControlResult {
   ok: boolean;
@@ -199,6 +200,16 @@ class App {
     }
     return null;
   }
+  /** Find the workspace + container holding a surface id, across all workspaces
+   *  (agent hooks fire from panes in any workspace, not just the active one). */
+  private findContainer(surfaceId: number): { ws: Workspace; container: PaneLike } | null {
+    for (const ws of this.workspaces) {
+      const c = ws.layout.containerOfSurface(surfaceId);
+      if (c) return { ws, container: c };
+    }
+    return null;
+  }
+
   private focusPaneAcrossWs(leafId: number): void {
     for (let i = 0; i < this.workspaces.length; i++) {
       const p = this.workspaces[i].layout.paneById(leafId);
@@ -659,6 +670,17 @@ class App {
       case "surface.select":
         layout.focusedPane.selectSurface?.(typeof cmd.delta === "number" ? cmd.delta : 0);
         return { ok: true };
+      case "surface.status": {
+        // Agent lifecycle (running/waiting/idle/error). Targets the caller pane
+        // across any workspace; "waiting" also rings (agent needs input).
+        const hit =
+          typeof cmd.surface === "number"
+            ? this.findContainer(cmd.surface)
+            : { ws: this.activeWs, container: layout.focusedPane };
+        if (!hit) return { ok: false, error: `no surface ${cmd.surface}` };
+        hit.container.setStatus?.(cmd.status ?? "idle");
+        return { ok: true };
+      }
       case "surface.send_text":
       case "surface.send_key": {
         const p = this.targetPane(cmd.surface);
@@ -684,19 +706,12 @@ class App {
         return await browserDispatch(sid, cmd.verb ?? "", cmd.args ?? []);
       }
       case "notify": {
-        const c =
+        const hit =
           typeof cmd.surface === "number"
-            ? layout.containerOfSurface(cmd.surface)
-            : layout.focusedPane;
-        const ws =
-          this.workspaces.find((w) => w.layout.paneById((c ?? layout.focusedPane).paneId)) ??
-          this.activeWs;
-        this.notifs.add(
-          (c ?? layout.focusedPane).paneId,
-          cmd.title ?? "",
-          cmd.body ?? cmd.text ?? "",
-          ws.id,
-        );
+            ? this.findContainer(cmd.surface)
+            : { ws: this.activeWs, container: layout.focusedPane };
+        const { ws, container } = hit ?? { ws: this.activeWs, container: layout.focusedPane };
+        this.notifs.add(container.paneId, cmd.title ?? "", cmd.body ?? cmd.text ?? "", ws.id);
         return { ok: true };
       }
       case "grep": {
@@ -774,6 +789,7 @@ const CAPABILITIES = [
   "pane.split", "pane.new", "pane.close", "pane.focus", "pane.list", "surface.list",
   "pane.equalize", "pane.zoom", "pane.resize", "pane.clear",
   "surface.new", "surface.next", "surface.prev", "surface.close", "surface.select",
+  "surface.status",
   "surface.send_text", "surface.send_key", "surface.read_text",
   "browser.open", "browser", "notify", "notif.list", "notif.clear", "grep",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",

@@ -109,6 +109,17 @@ export class PaneContainer implements PaneLike {
     this.activeSurface.setVisible?.(visible);
   }
 
+  /** Agent lifecycle status -> a colored dot on the pane (running/waiting/…). */
+  setStatus(status: string): void {
+    this.el.classList.remove(
+      "status-running",
+      "status-waiting",
+      "status-idle",
+      "status-error",
+    );
+    if (status && status !== "idle") this.el.classList.add("status-" + status);
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;

@@ -31,6 +31,8 @@ export interface PaneLike {
   onSplitRequest?: (pane: PaneLike) => void;
   /** Fired on a notification escape sequence / bell (terminal panes). */
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
+  /** Set the agent lifecycle status indicator (running/waiting/idle/error). */
+  setStatus?(status: string): void;
   /**
    * Called once by the Layout after the pane's element is attached to the DOM.
    * Heavy init that needs a measurable element (xterm.open, pty spawn) happens

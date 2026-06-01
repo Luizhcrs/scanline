@@ -504,3 +504,37 @@ body,
 .find-btn:hover {
   background: #2d3650;
 }
+
+/* Agent lifecycle status dot (top-right of the pane). */
+.pane-container.status-running,
+.pane-container.status-waiting,
+.pane-container.status-error {
+  position: relative;
+}
+.pane-container.status-running::after,
+.pane-container.status-waiting::after,
+.pane-container.status-error::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  z-index: 50;
+  pointer-events: none;
+}
+.pane-container.status-running::after {
+  background: #e3b341;
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+.pane-container.status-waiting::after {
+  background: #5aa0ff;
+}
+.pane-container.status-error::after {
+  background: #c0392b;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
