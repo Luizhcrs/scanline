@@ -61,6 +61,11 @@ export class PaneContainer implements PaneLike {
   get title(): string {
     return this.activeSurface.title ?? "";
   }
+  /** Rename the active surface (delegates to the surface). */
+  setTitle(name: string): void {
+    this.activeSurface.setTitle?.(name);
+    this.renderStrip();
+  }
   get activeSurface(): PaneLike {
     return this.surfaces[this.active];
   }
@@ -133,6 +138,18 @@ export class PaneContainer implements PaneLike {
     this.adoptSurface(s);
     this.surfaces.push(s);
     this.select(this.surfaces.length - 1);
+  }
+
+  /** Append a surface without selecting/mounting it (session restore). Mounting
+   *  is deferred to the container's mount() so xterm.open / pty spawn run only
+   *  after the element is attached and measurable. */
+  addSurfaceQuiet(s: PaneLike): void {
+    this.adoptSurface(s);
+    this.surfaces.push(s);
+  }
+  /** Set the active tab index pre-mount (restore); clamps to range. */
+  setActiveIndex(i: number): void {
+    this.active = Math.max(0, Math.min(i, this.surfaces.length - 1));
   }
 
   /** New terminal tab (+ button / Ctrl+T). */
@@ -221,6 +238,11 @@ export class PaneContainer implements PaneLike {
       const label = document.createElement("span");
       label.className = "surface-tab-label";
       label.textContent = `${s.kind === "browser" ? "◉ " : ""}${s.title || s.kind}`;
+      label.title = "Double-click to rename";
+      label.ondblclick = (e) => {
+        e.stopPropagation();
+        this.beginRename(s, label);
+      };
       tab.onclick = () => this.select(i);
       // Drag to reorder tabs.
       tab.draggable = true;
@@ -250,5 +272,33 @@ export class PaneContainer implements PaneLike {
     add.title = "New terminal tab (Ctrl+T)";
     add.onclick = () => this.newTerminalTab();
     this.strip.replaceChildren(...tabs, add);
+  }
+
+  /** Inline-edit a tab label. Enter saves, Escape cancels, blur saves. */
+  private beginRename(s: PaneLike, label: HTMLElement): void {
+    const input = document.createElement("input");
+    input.className = "surface-tab-rename";
+    input.value = s.title ?? "";
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) return;
+      done = true;
+      if (save) s.setTitle?.(input.value);
+      this.renderStrip();
+    };
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    input.onblur = () => finish(true);
+    label.replaceChildren(input);
+    input.focus();
+    input.select();
   }
 }

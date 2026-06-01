@@ -93,6 +93,18 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ws-rename,
+.surface-tab-rename {
+  width: 100%;
+  min-width: 60px;
+  background: #0a0d13;
+  color: #c5c8c6;
+  border: 1px solid var(--focus, #5aa0ff);
+  border-radius: 3px;
+  padding: 0 4px;
+  font: inherit;
+  outline: none;
+}
 .ws-badge {
   min-width: 16px;
   height: 16px;

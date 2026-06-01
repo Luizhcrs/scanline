@@ -109,12 +109,26 @@ export class BrowserPane implements PaneLike {
     requestAnimationFrame(() => this.refit());
   }
 
+  private _customTitle = "";
   get title(): string {
+    if (this._customTitle) return this._customTitle;
     try {
       return new URL(this.pendingUrl).hostname.replace(/^www\./, "") || "browser";
     } catch {
       return "browser";
     }
+  }
+  /** Override the label; empty clears back to the host. */
+  setTitle(name: string): void {
+    this._customTitle = name.trim();
+  }
+  /** Restore spec: kind + last URL + rename. */
+  serializeSurface(): import("./types").SurfaceSpec {
+    return {
+      kind: "browser",
+      url: this.pendingUrl || undefined,
+      title: this._customTitle || undefined,
+    };
   }
 
   navigate(input: string): void {

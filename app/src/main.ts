@@ -8,7 +8,7 @@ import { NotificationStore } from "./notifications";
 import { browserDispatch } from "./browserApi";
 import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
-import type { PaneLike } from "./types";
+import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
 const newTerminalLeaf = () => new PaneContainer(new Pane(), () => new Pane());
@@ -16,6 +16,23 @@ const newCommandLeaf = (command: string) =>
   new PaneContainer(new Pane(command), () => new Pane());
 const newBrowserLeaf = (url?: string) =>
   new PaneContainer(new BrowserPane(url), () => new Pane());
+
+/** Recreate a single surface from its restore spec. */
+const paneFromSpec = (s: SurfaceSpec): PaneLike => {
+  const p: PaneLike =
+    s.kind === "browser" ? new BrowserPane(s.url) : new Pane(s.command, s.cwd);
+  if (s.title) p.setTitle?.(s.title);
+  return p;
+};
+
+/** Recreate a grid leaf (container + its tabs) from serialized surface specs. */
+const leafFromSpecs = (specs: SurfaceSpec[], active: number): PaneLike => {
+  const list = specs.length ? specs : [{ kind: "terminal" as const }];
+  const container = new PaneContainer(paneFromSpec(list[0]), () => new Pane());
+  for (let i = 1; i < list.length; i++) container.addSurfaceQuiet(paneFromSpec(list[i]));
+  container.setActiveIndex(active);
+  return container;
+};
 
 interface Workspace {
   id: number;
@@ -85,6 +102,8 @@ function keyToBytes(key: string): string {
 class App {
   private workspaces: Workspace[] = [];
   private active = 0;
+  /** Last JSON written by the autosave loop (skip redundant disk writes). */
+  private lastSaved = "";
   private nextWsId = 1;
   private sidebarVisible = true;
   private notifs: NotificationStore;
@@ -107,9 +126,16 @@ class App {
     this.notifs.onChange = () => this.renderSidebar();
 
     this.installResizer();
-    this.newWorkspace();
+    // Restore the prior session (or open a fresh workspace) before anything
+    // that touches activeWs runs against it.
+    void this.boot();
 
     window.addEventListener("resize", () => this.activeLayout.refitAll());
+    // Best-effort final save when the window closes (the 8s autosave covers
+    // crashes / power loss).
+    window.addEventListener("beforeunload", () => {
+      void invoke("save_session", { json: JSON.stringify(this.serializeSession()) });
+    });
     // Poll per-workspace sidebar metadata (cwd / git branch / ports).
     setInterval(() => void this.refreshMeta(), 4000);
 
@@ -132,6 +158,60 @@ class App {
   }
   get activeLayout(): Layout {
     return this.activeWs.layout;
+  }
+
+  // ---- session restore ----
+  /** Restore the prior session if present, else open one fresh workspace. */
+  private async boot(): Promise<void> {
+    let restored = false;
+    try {
+      const raw = await invoke<string | null>("load_session");
+      if (raw) {
+        const data = JSON.parse(raw) as {
+          active?: number;
+          workspaces?: Array<{ title?: string; tree: TreeSpec }>;
+        };
+        if (data.workspaces?.length) {
+          for (const w of data.workspaces) {
+            const ws = this.newWorkspace();
+            if (w.title) ws.title = w.title;
+            await ws.layout.loadTree(w.tree, leafFromSpecs);
+          }
+          this.selectWorkspace(Math.min(data.active ?? 0, this.workspaces.length - 1));
+          restored = true;
+        }
+      }
+    } catch (err) {
+      console.error("session restore failed:", err);
+    }
+    if (!restored) this.newWorkspace();
+    this.renderSidebar();
+    this.startAutosave();
+  }
+
+  /** The full app state needed to recreate workspaces + their layouts. */
+  private serializeSession(): {
+    active: number;
+    workspaces: Array<{ title: string; tree: TreeSpec }>;
+  } {
+    return {
+      active: this.active,
+      workspaces: this.workspaces.map((w) => ({
+        title: w.title,
+        tree: w.layout.serializeTree(),
+      })),
+    };
+  }
+
+  /** Persist the session every 8s when it has changed. */
+  private startAutosave(): void {
+    setInterval(() => {
+      const json = JSON.stringify(this.serializeSession());
+      if (json !== this.lastSaved) {
+        this.lastSaved = json;
+        void invoke("save_session", { json });
+      }
+    }, 8000);
   }
 
   // ---- workspaces ----
@@ -241,6 +321,11 @@ class App {
       const label = document.createElement("span");
       label.className = "ws-label";
       label.textContent = w.title;
+      label.title = "Double-click to rename";
+      label.ondblclick = (e) => {
+        e.stopPropagation();
+        this.beginWsRename(w, label);
+      };
       top.append(label);
       const unread = this.notifs.unreadForWs(w.id);
       if (unread > 0) {
@@ -283,10 +368,41 @@ class App {
     this.sidebar.replaceChildren(...rows, add);
   }
 
+  /** Inline-edit a workspace label. Enter saves, Escape cancels, blur saves. */
+  private beginWsRename(w: Workspace, label: HTMLElement): void {
+    const input = document.createElement("input");
+    input.className = "ws-rename";
+    input.value = w.title;
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      if (save && name) w.title = name;
+      this.renderSidebar();
+    };
+    input.onclick = (e) => e.stopPropagation();
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    input.onblur = () => finish(true);
+    label.replaceChildren(input);
+    input.focus();
+    input.select();
+  }
+
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private async refreshMeta(): Promise<void> {
     const w = this.activeWs;
+    if (!w) return; // boot not finished yet
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
@@ -614,6 +730,7 @@ class App {
 
   private async dispatch(cmd: ControlCommand): Promise<ControlResult> {
     if (!cmd || typeof cmd.method !== "string") return { ok: false, error: "missing method" };
+    if (!this.activeWs) return { ok: false, error: "starting up" };
     const layout = this.activeLayout;
     switch (cmd.method) {
       case "pane.split": {
@@ -673,6 +790,17 @@ class App {
       case "surface.select":
         layout.focusedPane.selectSurface?.(typeof cmd.delta === "number" ? cmd.delta : 0);
         return { ok: true };
+      case "surface.rename": {
+        // Renames the active tab of the target container (caller pane across
+        // workspaces, else the focused pane). Empty name clears to auto.
+        const hit =
+          typeof cmd.surface === "number"
+            ? this.findContainer(cmd.surface)
+            : { ws: this.activeWs, container: layout.focusedPane };
+        if (!hit) return { ok: false, error: `no surface ${cmd.surface}` };
+        hit.container.setTitle?.(cmd.name ?? cmd.text ?? "");
+        return { ok: true };
+      }
       case "surface.status": {
         // Agent lifecycle (running/waiting/idle/error). Targets the caller pane
         // across any workspace; "waiting" also rings (agent needs input).
@@ -804,7 +932,7 @@ const CAPABILITIES = [
   "pane.split", "pane.new", "pane.close", "pane.focus", "pane.list", "surface.list",
   "pane.equalize", "pane.zoom", "pane.resize", "pane.clear",
   "surface.new", "surface.next", "surface.prev", "surface.close", "surface.select",
-  "surface.status",
+  "surface.status", "surface.rename",
   "surface.send_text", "surface.send_key", "surface.read_text",
   "browser.open", "browser", "notify", "notif.list", "notif.clear", "feed.ask", "grep",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",

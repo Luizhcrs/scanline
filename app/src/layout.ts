@@ -1,4 +1,4 @@
-import type { PaneLike } from "./types";
+import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 type Dir = "row" | "col";
 
@@ -109,6 +109,49 @@ export class Layout {
       }
     }
     return out;
+  }
+
+  /** Serialize the split tree structurally (for session restore): ratios, dirs,
+   *  and each leaf's surface specs + active tab. */
+  serializeTree(): TreeSpec {
+    const walk = (n: Node): TreeSpec => {
+      if (n.kind === "leaf") {
+        const c = n.pane;
+        const surfaces = c.allSurfaces ?? [c];
+        const specs: SurfaceSpec[] = surfaces.map(
+          (s) => s.serializeSurface?.() ?? { kind: s.kind },
+        );
+        const active = surfaces.indexOf(c.activeSurface ?? c);
+        return { kind: "leaf", surfaces: specs, active: active < 0 ? 0 : active };
+      }
+      return { kind: "split", dir: n.dir, ratio: n.ratio, a: walk(n.a), b: walk(n.b) };
+    };
+    return walk(this.root);
+  }
+
+  /** Replace the whole layout from a serialized tree. `makeLeaf` builds a leaf
+   *  pane (a container) from its surface specs + active index. Disposes the
+   *  current panes first. */
+  async loadTree(
+    spec: TreeSpec,
+    makeLeaf: (surfaces: SurfaceSpec[], active: number) => PaneLike,
+  ): Promise<void> {
+    await this.disposeAll();
+    this.mounted = new WeakSet<PaneLike>();
+    this.zoomed = null;
+    const build = (s: TreeSpec): Node => {
+      if (s.kind === "leaf") {
+        const pane = makeLeaf(s.surfaces, s.active);
+        this.adopt(pane);
+        return { kind: "leaf", pane };
+      }
+      return { kind: "split", dir: s.dir, ratio: s.ratio, a: build(s.a), b: build(s.b) };
+    };
+    this.root = build(spec);
+    const first = this.firstLeaf(this.root);
+    if (first) this.focused = first;
+    this.render();
+    if (first) this.setFocus(first);
   }
 
   /** Find a leaf (pane container) by its stable id. */

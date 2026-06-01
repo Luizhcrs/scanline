@@ -46,6 +46,7 @@ fn pty_spawn(
     shell: Option<String>,
     command: Option<String>,
     surface_id: Option<u32>,
+    cwd: Option<String>,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -77,8 +78,12 @@ fn pty_spawn(
              'PS '+$p+'> ' }",
         );
     }
-    if let Ok(home) = std::env::var("USERPROFILE") {
-        cmd.cwd(home);
+    // Start dir: a restored pane's saved cwd (if it still exists), else home.
+    let start_dir = cwd
+        .filter(|c| std::path::Path::new(c).is_dir())
+        .or_else(|| std::env::var("USERPROFILE").ok());
+    if let Some(dir) = start_dir {
+        cmd.cwd(dir);
     }
     // Caller-pane context: a process in this pane (the CLI / tmux shim) reads
     // this as its default --surface target.
@@ -318,6 +323,37 @@ async fn grep_dir(cwd: String, query: String) -> Result<Vec<serde_json::Value>, 
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Path of the persisted session file: %APPDATA%\scanline\session.json.
+fn session_path() -> Option<std::path::PathBuf> {
+    let base = std::env::var("APPDATA").ok()?;
+    Some(std::path::Path::new(&base).join("scanline").join("session.json"))
+}
+
+/// Persist the serialized workspace/layout tree to disk (atomic write).
+#[tauri::command]
+fn save_session(json: String) -> Result<(), String> {
+    let path = session_path().ok_or("no APPDATA")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    // Write to a temp sibling then rename, so a crash mid-write never leaves a
+    // truncated session file that would fail to parse on next boot.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+/// Load the persisted session JSON, or null if none exists.
+#[tauri::command]
+fn load_session() -> Result<Option<String>, String> {
+    let path = session_path().ok_or("no APPDATA")?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// The pid set rooted at `root` (process + all descendants) via a Toolhelp snapshot.
@@ -909,7 +945,9 @@ pub fn run() {
             control_reply,
             repo_info,
             pane_ports,
-            grep_dir
+            grep_dir,
+            save_session,
+            load_session
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

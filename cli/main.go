@@ -119,7 +119,7 @@ func usage() {
   scanline key  [--surface N] <key>                  send a key/chord (enter, c-c, up, …)
   scanline notify [--title T] <body...>              post a notification
   scanline close                                     close the focused pane
-  scanline surface [new|next|prev|close|select <n>]  per-pane terminal tabs
+  scanline surface [new|next|prev|close|select <n>|rename <name>]  per-pane terminal tabs
   scanline ws [list|new|select <id>|close <id>|rename <id> <name>|current]  workspaces
   scanline equalize | zoom | resize [delta]          layout: equalize / zoom / resize focused
   scanline notif [clear]                             list (or clear) notifications
@@ -260,6 +260,13 @@ func main() {
 			// 1-based for the user (matches Ctrl+1..8); protocol delta is 0-based.
 			if n, err := strconv.Atoi(args[2]); err == nil {
 				m["delta"] = n - 1
+			}
+		}
+		if sub == "rename" {
+			surface, rest := callerSurface(args[2:])
+			m["name"] = strings.Join(rest, " ")
+			if surface != nil {
+				m["surface"] = surface
 			}
 		}
 		send("surface."+sub, m)

@@ -4,6 +4,24 @@ export function nextPaneId(): number {
   return ++paneCounter;
 }
 
+/** Minimal description of a surface, enough to recreate it on session restore. */
+export interface SurfaceSpec {
+  kind: "terminal" | "browser";
+  /** Terminal: the command line, if it was a command pane (not a plain shell). */
+  command?: string;
+  /** Browser: the last URL. */
+  url?: string;
+  /** Terminal: last known working dir (restore the shell there). */
+  cwd?: string;
+  /** User rename, if any. */
+  title?: string;
+}
+
+/** A workspace's layout tree, serialized for session restore. */
+export type TreeSpec =
+  | { kind: "leaf"; surfaces: SurfaceSpec[]; active: number }
+  | { kind: "split"; dir: "row" | "col"; ratio: number; a: TreeSpec; b: TreeSpec };
+
 /**
  * Common interface for anything that can live in a layout leaf: a terminal
  * pane or a browser pane. The Layout operates only on this interface.
@@ -33,6 +51,11 @@ export interface PaneLike {
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   /** Set the agent lifecycle status indicator (running/waiting/idle/error). */
   setStatus?(status: string): void;
+  /** Override the display label (user rename). Empty string clears it back to
+   *  the auto title (OSC/command/host). */
+  setTitle?(name: string): void;
+  /** A spec sufficient to recreate this surface on session restore. */
+  serializeSurface?(): SurfaceSpec;
   /**
    * Called once by the Layout after the pane's element is attached to the DOM.
    * Heavy init that needs a measurable element (xterm.open, pty spawn) happens

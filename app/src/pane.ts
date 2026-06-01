@@ -44,10 +44,28 @@ export class Pane implements PaneLike {
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
 
   private _title = "";
+  private _customTitle = "";
   private _cwd = "";
-  /** Terminal title from OSC 0/2, else the command, else "terminal". */
+  /** User rename (wins), else terminal title from OSC 0/2, else the command. */
   get title(): string {
-    return this._title || (this.command ? this.command.split(/\s+/)[0] : "terminal");
+    return (
+      this._customTitle ||
+      this._title ||
+      (this.command ? this.command.split(/\s+/)[0] : "terminal")
+    );
+  }
+  /** Override the label; empty clears back to the auto title. */
+  setTitle(name: string): void {
+    this._customTitle = name.trim();
+  }
+  /** Restore spec: kind + command + last cwd + rename. */
+  serializeSurface(): import("./types").SurfaceSpec {
+    return {
+      kind: "terminal",
+      command: this.command || undefined,
+      cwd: this._cwd || undefined,
+      title: this._customTitle || undefined,
+    };
   }
   /** Working directory from OSC 7 (sidebar git/ports metadata). */
   get cwd(): string {
@@ -72,7 +90,11 @@ export class Pane implements PaneLike {
 
   /** @param command optional command line to run in this pane (instead of a
    *  plain interactive shell) — used for agent panes spawned via the CLI/shim. */
-  constructor(private readonly command?: string) {
+  constructor(
+    private readonly command?: string,
+    /** Restore: start the shell here instead of home (if the dir still exists). */
+    private readonly initialCwd?: string,
+  ) {
     this.el = document.createElement("div");
     this.el.className = "pane";
     this.el.tabIndex = -1;
@@ -204,6 +226,7 @@ export class Pane implements PaneLike {
       shell: shell ?? null,
       command: this.command ?? null,
       surfaceId: this.paneId,
+      cwd: this.initialCwd ?? null,
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
