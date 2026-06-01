@@ -293,12 +293,15 @@ export class Layout {
     this.root = this.removeLeaf(this.root, pane)!;
     this.onPaneClosed?.(pane.paneId);
     this.render();
-    // Move focus to a surviving leaf BEFORE disposing the closed pane. setFocus
-    // blurs the previously-focused pane; if that pane is already disposed it has
-    // no active surface to blur and throws, which would abort closePane and
-    // strand focus off-tree (grid then "stuck" — splits silently no-op).
-    const next = this.firstLeaf(this.root);
-    if (next && next !== pane) this.setFocus(next);
+    // Only move focus if we closed the FOCUSED pane (a background/agent-driven
+    // close must not yank the user's focus to the top-left). setFocus runs
+    // BEFORE dispose so blurring the old focused pane still works (a disposed
+    // container has no active surface to blur and would throw, stranding focus
+    // off-tree -> grid "stuck", splits no-op).
+    if (this.focused === pane) {
+      const next = this.firstLeaf(this.root);
+      if (next) this.setFocus(next);
+    }
     try {
       await pane.dispose();
     } catch (e) {

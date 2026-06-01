@@ -136,11 +136,15 @@ fn pty_spawn(
     let buffer: Arc<(Mutex<Vec<u8>>, Condvar)> = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
     let done = Arc::new(AtomicBool::new(false));
 
-    // Cap how much output can queue (firehose like `cat huge` / `yes`): bound
-    // total RAM and the per-event payload so the frontend never base64-decodes a
-    // multi-MB blob synchronously on its UI thread (which froze the window).
-    const BUF_MAX: usize = 8 * 1024 * 1024; // drop oldest beyond this
-    const EMIT_MAX: usize = 64 * 1024; // bytes per emit; big bursts stream as many
+    // Cap the per-event payload so the frontend never base64-decodes a multi-MB
+    // blob synchronously on its UI thread (which froze the window). A big burst
+    // streams as several events instead — each decodes in ~ms and the event loop
+    // handles input between them. No artificial throughput cap (a fast build log
+    // must not lag), and a generous buffer so only a true unbounded firehose ever
+    // drops; when it must, drop oldest up to a newline to avoid splitting an
+    // escape/UTF-8 sequence mid-stream (which would garble the xterm parser).
+    const BUF_MAX: usize = 32 * 1024 * 1024;
+    const EMIT_MAX: usize = 256 * 1024;
 
     let rbuf = buffer.clone();
     let rdone = done.clone();
@@ -157,7 +161,14 @@ fn pty_spawn(
                     b.extend_from_slice(&tmp[..n]);
                     if b.len() > BUF_MAX {
                         let overflow = b.len() - BUF_MAX;
-                        b.drain(..overflow); // drop oldest; xterm scrollback would too
+                        // Drop oldest, but advance to the next newline so a cut
+                        // never lands inside an escape/UTF-8 sequence.
+                        let cut = b[overflow..]
+                            .iter()
+                            .position(|&c| c == b'\n')
+                            .map(|p| overflow + p + 1)
+                            .unwrap_or(overflow);
+                        b.drain(..cut);
                     }
                     drop(b);
                     cv.notify_one();
@@ -196,13 +207,9 @@ fn pty_spawn(
             };
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
             let _ = app2.emit(&data_event, encoded);
-            // Pace emits so a firehose can't fire hundreds of events back-to-back
-            // — each one is a synchronous base64-decode on the frontend's UI
-            // thread, and unpaced they starve clicks. ~8ms => <=64KB/8ms (~8MB/s),
-            // smooth output while leaving the UI thread time to handle input.
-            // Excess output coalesces in the (capped) buffer; on a true firehose
-            // older bytes drop, which is fine for unreadable scroll.
-            thread::sleep(std::time::Duration::from_millis(8));
+            // No artificial sleep: 256KB decodes fast and Tauri delivers each
+            // event as its own task, so the event loop services input between
+            // them. Throughput is bound only by how fast the frontend drains.
         }
         let _ = app2.emit(&exit_event, ());
     });

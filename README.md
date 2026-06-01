@@ -200,7 +200,7 @@ Config lives in `%APPDATA%\scanline\scanline.json` (JSONC — `//` and `/* */` c
   "terminal": {
     "fontFamily": "Consolas, 'Cascadia Mono', monospace",
     "fontSize": 14,
-    "scrollback": 100000,
+    "scrollback": 10000,
     "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5ff967" }
   },
   "ui": {

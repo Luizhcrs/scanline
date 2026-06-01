@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { SearchAddon } from "@xterm/addon-search";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { type PaneLike, nextPaneId } from "./types";
 import { config } from "./config";
 
@@ -116,7 +117,9 @@ export class Pane implements PaneLike {
     this.term.loadAddon(
       new WebLinksAddon((e, uri) => {
         if (e.ctrlKey || e.metaKey) this.onOpenUrl?.(this, uri);
-        else window.open(uri); // plain click: external browser (xterm default)
+        // Plain click -> OS default browser via the opener plugin. window.open
+        // in a WebView2 host is unreliable (blocked or an unmanaged popup).
+        else void openUrl(uri).catch(() => {});
       }),
     );
 
