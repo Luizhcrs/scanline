@@ -39,7 +39,6 @@ export class BrowserPane implements PaneLike {
   private creating = false;
   private disposed = false;
   private pendingUrl: string;
-  private lastRect = { x: -1, y: -1, w: -1, h: -1 };
 
   keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   onExit?: (pane: PaneLike) => void;
@@ -171,7 +170,6 @@ export class BrowserPane implements PaneLike {
     if (!this.created) {
       if (this.creating) return; // open in flight — don't double-create
       this.creating = true;
-      this.lastRect = next;
       invoke("browser_open", { id: this.paneId, url: this.pendingUrl, ...next })
         .then(() => {
           this.created = true;
@@ -183,9 +181,6 @@ export class BrowserPane implements PaneLike {
             void invoke("browser_close", { id: this.paneId }).catch(() => {});
             return;
           }
-          // Force the next refit to re-apply bounds: a post-create set_position/
-          // set_size is the composition nudge that makes WebView2 paint.
-          this.lastRect = { x: -1, y: -1, w: -1, h: -1 };
           this.startUrlListener();
         })
         .catch((err) => {
@@ -195,15 +190,10 @@ export class BrowserPane implements PaneLike {
       return;
     }
 
-    if (
-      next.x === this.lastRect.x &&
-      next.y === this.lastRect.y &&
-      next.w === this.lastRect.w &&
-      next.h === this.lastRect.h
-    ) {
-      return; // no change
-    }
-    this.lastRect = next;
+    // Always re-apply bounds when laid out (no dedup): a skipped update left the
+    // native webview stuck at an old (small) size after a window shrink+grow.
+    // browser_bounds is a cheap main-thread SetBounds; during a pane drag the
+    // browsers are hidden so this isn't called then.
     invoke("browser_bounds", { id: this.paneId, ...next }).catch(() => {});
   }
 
