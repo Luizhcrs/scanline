@@ -643,13 +643,17 @@ class App {
 
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
+  private metaBusy = false;
   private async refreshMeta(): Promise<void> {
     if (document.hidden) return; // minimized: don't spawn git/gh/netstat
+    if (this.metaBusy) return; // previous poll still in flight (hung git/gh) — don't pile up
     const w = this.activeWs;
     if (!w) return; // boot not finished yet
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
+    this.metaBusy = true;
+    this.setMetaLoading(true); // green progress line while refreshing
     try {
       const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
         "repo_info",
@@ -666,6 +670,28 @@ class App {
       }
     } catch {
       /* git/gh not available or no repo */
+    } finally {
+      this.metaBusy = false;
+      this.setMetaLoading(false);
+    }
+  }
+
+  /** Toggle a thin animated progress line on the active workspace row while its
+   *  git/ports metadata is being fetched (the fetch can take a few seconds). */
+  private setMetaLoading(on: boolean): void {
+    const row = this.sidebar.querySelector(
+      `.ws-row[data-ws-id="${this.activeWs?.id}"]`,
+    ) as HTMLElement | null;
+    if (!row) return;
+    let bar = row.querySelector(".ws-loading") as HTMLElement | null;
+    if (on) {
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.className = "ws-loading";
+        row.appendChild(bar);
+      }
+    } else {
+      bar?.remove();
     }
   }
 

@@ -256,6 +256,9 @@ fn run_capture(program: &str, args: &[&str], cwd: Option<&str>) -> Option<String
     if let Some(d) = cwd {
         c.current_dir(d);
     }
+    c.stdout(std::process::Stdio::piped());
+    c.stderr(std::process::Stdio::null());
+    c.stdin(std::process::Stdio::null());
     // CREATE_NO_WINDOW (0x0800_0000): a GUI app spawning a console program
     // (git, gh, netstat, findstr) flashes a cmd window otherwise. refreshMeta
     // polls these on a timer, so without this the screen blinks console windows.
@@ -264,11 +267,33 @@ fn run_capture(program: &str, args: &[&str], cwd: Option<&str>) -> Option<String
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000);
     }
-    let out = c.output().ok()?;
-    if out.status.success() {
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        None
+    let mut child = c.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    // Read on a side thread with a hard deadline. A hung subprocess (e.g.
+    // `gh pr view` waiting on auth/network) must NOT park its blocking thread
+    // forever — over a long session the 4s metadata poll would pile up stuck
+    // threads and eventually starve the pool, hanging the app. Kill on timeout.
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut s);
+        let _ = tx.send(s);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(s) => {
+            let _ = child.wait();
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
+        }
     }
 }
 

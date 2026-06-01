@@ -81,6 +81,24 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Thin running line under a workspace row while its git/ports metadata loads. */
+.ws-row {
+  position: relative;
+}
+.ws-loading {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 40%;
+  border-radius: 2px;
+  background: var(--focus);
+  animation: ws-loading-run 1s ease-in-out infinite;
+}
+@keyframes ws-loading-run {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
 .sidebar-resizer {
   flex: 0 0 4px;
   cursor: col-resize;
