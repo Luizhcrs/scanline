@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { SearchAddon } from "@xterm/addon-search";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { type PaneLike, nextPaneId } from "./types";
 import { config } from "./config";
 
@@ -324,7 +325,7 @@ export class Pane implements PaneLike {
     const sel = this.term.getSelection();
     if (!sel) return;
     try {
-      await navigator.clipboard.writeText(sel);
+      await writeText(sel);
     } catch (e) {
       console.warn("copy:", e);
     }
@@ -332,7 +333,7 @@ export class Pane implements PaneLike {
 
   async paste(): Promise<void> {
     try {
-      const t = await navigator.clipboard.readText();
+      const t = await readText();
       if (t) this.term.paste(t);
     } catch (e) {
       console.warn("paste:", e);

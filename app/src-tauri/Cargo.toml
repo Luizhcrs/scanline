@@ -38,6 +38,7 @@ portable-pty = "0.9.0"
 tokio = { version = "1", features = ["sync", "net", "io-util", "rt", "time"] }
 tauri-plugin-notification = "2.3.3"
 base64 = "0.22"
+tauri-plugin-clipboard-manager = "2.3.2"
 
 # Windows-only: direct access to the WebView2 COM API so we can drive the
 # DevTools Protocol (CallDevToolsProtocolMethodAsync) for the scriptable
