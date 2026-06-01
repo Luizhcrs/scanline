@@ -268,7 +268,7 @@ class App {
     if (this.helpEl) {
       this.helpEl.remove();
       this.helpEl = undefined;
-      popOverlay();
+      popOverlay("help");
       return;
     }
     const overlay = document.createElement("div");
@@ -347,7 +347,7 @@ class App {
     overlay.appendChild(card);
     document.body.appendChild(overlay);
     this.helpEl = overlay;
-    pushOverlay();
+    pushOverlay("help");
   }
 
   private fullscreen = false;
@@ -503,6 +503,7 @@ class App {
     for (const s of ws.layout.serialize()) this.notifs.removePane(s.pane);
     await ws.layout.disposeAll();
     ws.grid.remove();
+    this.meta.delete(id); // else one stale entry leaks per closed workspace
     this.workspaces.splice(i, 1);
     if (this.active >= this.workspaces.length) this.active = this.workspaces.length - 1;
     else if (i <= this.active && this.active > 0) this.active--;

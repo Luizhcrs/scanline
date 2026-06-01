@@ -359,5 +359,9 @@ export class Pane implements PaneLike {
       await invoke("pty_close", { id: this.ptyId }).catch(() => {});
     }
     this.term.dispose();
+    // Drop back-references so the disposed pane (and its xterm) is collectable
+    // even if a stale ref lingers; these closures capture the long-lived App.
+    this.keyHandler = null;
+    this.onExit = this.onFocusRequest = this.onNotify = undefined;
   }
 }

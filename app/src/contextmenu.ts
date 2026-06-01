@@ -60,7 +60,7 @@ export class ContextMenu {
       this.el.appendChild(row);
     }
     // Show off-screen first to measure, then clamp into the viewport.
-    if (this.el.style.display === "none") pushOverlay();
+    if (this.el.style.display === "none") pushOverlay("menu");
     this.el.style.display = "block";
     this.el.style.left = "0px";
     this.el.style.top = "0px";
@@ -72,7 +72,7 @@ export class ContextMenu {
   }
 
   hide(): void {
-    if (this.el.style.display !== "none") popOverlay();
+    if (this.el.style.display !== "none") popOverlay("menu");
     this.el.style.display = "none";
   }
 }

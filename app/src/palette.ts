@@ -77,7 +77,7 @@ export class CommandPalette {
     this.restore = document.activeElement as HTMLElement;
     this.input.value = "";
     this.input.placeholder = placeholder;
-    if (!this.isOpen) pushOverlay();
+    if (!this.isOpen) pushOverlay("palette");
     this.overlay.style.display = "flex";
     this.render();
     this.input.focus();
@@ -93,7 +93,7 @@ export class CommandPalette {
     this.restore = document.activeElement as HTMLElement;
     this.input.value = "";
     this.input.placeholder = placeholder;
-    if (!this.isOpen) pushOverlay();
+    if (!this.isOpen) pushOverlay("palette");
     this.overlay.style.display = "flex";
     this.filtered = [];
     this.renderRows();
@@ -117,7 +117,7 @@ export class CommandPalette {
   }
 
   close(): void {
-    if (this.isOpen) popOverlay();
+    if (this.isOpen) popOverlay("palette");
     this.overlay.style.display = "none";
     this.restore?.focus();
   }
@@ -245,14 +245,14 @@ export class FindBar {
 
   open(handlers: FindHandlers): void {
     this.handlers = handlers;
-    if (this.bar.style.display === "none") pushOverlay();
+    if (this.bar.style.display === "none") pushOverlay("find");
     this.bar.style.display = "flex";
     this.input.value = "";
     this.input.focus();
   }
 
   close(): void {
-    if (this.bar.style.display !== "none") popOverlay();
+    if (this.bar.style.display !== "none") popOverlay("find");
     this.bar.style.display = "none";
     this.handlers?.closed();
     this.handlers = undefined;

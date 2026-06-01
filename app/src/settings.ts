@@ -86,13 +86,13 @@ export class SettingsPanel {
     btns.append(file, cancel, save);
     this.card.appendChild(btns);
 
-    if (!this.isOpen()) pushOverlay();
+    if (!this.isOpen()) pushOverlay("settings");
     this.overlay.style.display = "flex";
     uiFont.focus();
   }
 
   close(): void {
-    if (this.isOpen()) popOverlay();
+    if (this.isOpen()) popOverlay("settings");
     this.overlay.style.display = "none";
   }
 

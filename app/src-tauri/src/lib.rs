@@ -130,6 +130,12 @@ fn pty_spawn(
     let buffer: Arc<(Mutex<Vec<u8>>, Condvar)> = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
     let done = Arc::new(AtomicBool::new(false));
 
+    // Cap how much output can queue (firehose like `cat huge` / `yes`): bound
+    // total RAM and the per-event payload so the frontend never base64-decodes a
+    // multi-MB blob synchronously on its UI thread (which froze the window).
+    const BUF_MAX: usize = 8 * 1024 * 1024; // drop oldest beyond this
+    const EMIT_MAX: usize = 64 * 1024; // bytes per emit; big bursts stream as many
+
     let rbuf = buffer.clone();
     let rdone = done.clone();
     thread::spawn(move || {
@@ -141,7 +147,13 @@ fn pty_spawn(
                 // Poison-tolerant: a panic elsewhere must not silently kill the
                 // pty output pipeline (would look like a frozen terminal).
                 Ok(n) => {
-                    lock.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(&tmp[..n]);
+                    let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    b.extend_from_slice(&tmp[..n]);
+                    if b.len() > BUF_MAX {
+                        let overflow = b.len() - BUF_MAX;
+                        b.drain(..overflow); // drop oldest; xterm scrollback would too
+                    }
+                    drop(b);
                     cv.notify_one();
                 }
                 Err(_) => break,
@@ -168,7 +180,13 @@ fn pty_spawn(
                 if b.is_empty() {
                     break; // empty + done
                 }
-                std::mem::take(&mut *b)
+                // Take at most EMIT_MAX; a big burst stays buffered and the next
+                // loop iteration emits the rest immediately (no wait).
+                if b.len() <= EMIT_MAX {
+                    std::mem::take(&mut *b)
+                } else {
+                    b.drain(..EMIT_MAX).collect()
+                }
             };
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
             let _ = app2.emit(&data_event, encoded);
@@ -743,8 +761,13 @@ async fn cdp_call(
         })
         .map_err(|e| format!("with_webview failed: {e}"))?;
 
-    rx.await
-        .map_err(|_| "cdp_call: no response (CoreWebView2 not ready?)".to_string())?
+    // Bound the wait: if WebView2 never invokes the completion handler (page
+    // torn down / core crashed) the receiver would park forever, pinning this
+    // worker (and, for the in-control-loop debug path, the pipe task).
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(r) => r.map_err(|_| "cdp_call: no response (CoreWebView2 not ready?)".to_string())?,
+        Err(_) => Err("cdp_call: timed out after 30s".to_string()),
+    }
 }
 
 #[cfg(not(windows))]

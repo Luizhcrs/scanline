@@ -54,7 +54,7 @@ export class FeedPanel {
         // separate counter that could desync.
         if (!this.list.childElementCount) {
           this.panel.style.display = "none";
-          popOverlay();
+          popOverlay("feed");
         }
         resolve(decision);
       };
@@ -69,7 +69,7 @@ export class FeedPanel {
       row.append(title, body, btns);
       const wasEmpty = !this.list.childElementCount;
       this.list.appendChild(row);
-      if (wasEmpty) pushOverlay();
+      if (wasEmpty) pushOverlay("feed");
       this.panel.style.display = "flex";
       // Focus the primary option so the card is keyboard-operable (Enter to
       // confirm) — the agent is blocked waiting on this decision.

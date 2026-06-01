@@ -254,5 +254,7 @@ export class BrowserPane implements PaneLike {
       await invoke("browser_close", { id: this.paneId }).catch(() => {});
     }
     this.el.remove();
+    this.keyHandler = null;
+    this.onExit = this.onFocusRequest = this.onCloseRequest = this.onSplitRequest = undefined;
   }
 }
