@@ -128,27 +128,38 @@ func setupHooks(args []string) {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	for _, event := range []string{"Notification", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse"} {
-		cmd := fmt.Sprintf("\"%s\" hooks claude %s", self, event)
-		entry := map[string]any{
-			"hooks": []any{map[string]any{"type": "command", "command": cmd}},
+	// First strip EVERY prior scanline-owned entry across all events. This both
+	// dedups and removes orphans from events we no longer install (e.g. the
+	// Pre/PostToolUse hooks older versions added) and stale exe paths after a
+	// move/reinstall. Comparing exact command strings instead would accumulate.
+	for ev, raw := range hooks {
+		arr, ok := raw.([]any)
+		if !ok {
+			continue
 		}
-		// Tool events match against a tool-name pattern; "*" = all tools. The
-		// other events (Stop/Notification/UserPromptSubmit) take no matcher.
-		if event == "PreToolUse" || event == "PostToolUse" {
-			entry["matcher"] = "*"
-		}
-		// Drop any prior scanline-owned entry (including one pointing at an old
-		// exe path after a reinstall/move) and re-add the current one. Comparing
-		// the exact command string instead would accumulate stale duplicates.
-		arr, _ := hooks[event].([]any)
 		kept := make([]any, 0, len(arr))
 		for _, e := range arr {
 			if !isScanlineHook(e) {
 				kept = append(kept, e)
 			}
 		}
-		hooks[event] = append(kept, entry)
+		if len(kept) == 0 {
+			delete(hooks, ev)
+		} else {
+			hooks[ev] = kept
+		}
+	}
+	// Per-turn events only (not Pre/PostToolUse): a prompt submit flips the dot
+	// to running for the whole turn, Stop clears it, Notification flags waiting.
+	// Installing tool events would fire a scanline.exe spawn on EVERY tool call
+	// of EVERY Claude session on the machine just to set the same "running".
+	for _, event := range []string{"Notification", "Stop", "UserPromptSubmit"} {
+		cmd := fmt.Sprintf("\"%s\" hooks claude %s", self, event)
+		entry := map[string]any{
+			"hooks": []any{map[string]any{"type": "command", "command": cmd}},
+		}
+		arr, _ := hooks[event].([]any)
+		hooks[event] = append(arr, entry)
 	}
 	settings["hooks"] = hooks
 

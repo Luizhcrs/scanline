@@ -39,6 +39,13 @@ export class BrowserPane implements PaneLike {
   private creating = false;
   private disposed = false;
   private pendingUrl: string;
+  // refit() is coalesced through one rAF so a burst of ResizeObserver / window
+  // resize ticks collapses to a single browser_bounds per frame; lastRect then
+  // skips no-op bounds. browser_bounds hops to the native main thread, so an
+  // un-throttled flood (e.g. a window-resize drag) freezes the win32 message
+  // pump — an Application Hang.
+  private refitPending = false;
+  private lastRect: { x: number; y: number; w: number; h: number } | null = null;
 
   keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   onExit?: (pane: PaneLike) => void;
@@ -160,8 +167,18 @@ export class BrowserPane implements PaneLike {
     }).catch(() => {});
   }
 
-  /** Sync the native webview to the viewport element's rectangle. */
+  /** Sync the native webview to the viewport rectangle. Coalesced via rAF so a
+   *  burst of resize ticks applies bounds at most once per frame. */
   refit(): void {
+    if (this.disposed || this.refitPending) return;
+    this.refitPending = true;
+    requestAnimationFrame(() => {
+      this.refitPending = false;
+      this.applyBounds();
+    });
+  }
+
+  private applyBounds(): void {
     if (this.disposed) return;
     const r = this.viewport.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return;
@@ -170,6 +187,7 @@ export class BrowserPane implements PaneLike {
     if (!this.created) {
       if (this.creating) return; // open in flight — don't double-create
       this.creating = true;
+      this.lastRect = next;
       invoke("browser_open", { id: this.paneId, url: this.pendingUrl, ...next })
         .then(() => {
           this.created = true;
@@ -181,6 +199,9 @@ export class BrowserPane implements PaneLike {
             void invoke("browser_close", { id: this.paneId }).catch(() => {});
             return;
           }
+          // Re-apply once the view exists (the open rect may already be stale).
+          this.lastRect = null;
+          this.refit();
           this.startUrlListener();
         })
         .catch((err) => {
@@ -190,10 +211,12 @@ export class BrowserPane implements PaneLike {
       return;
     }
 
-    // Always re-apply bounds when laid out (no dedup): a skipped update left the
-    // native webview stuck at an old (small) size after a window shrink+grow.
-    // browser_bounds is a cheap main-thread SetBounds; during a pane drag the
-    // browsers are hidden so this isn't called then.
+    // Skip no-op bounds: re-applying an unchanged rect floods the native main
+    // thread (run_on_main_thread SetBounds) and can hang the message pump. The
+    // rect is read fresh here, so a real shrink+grow still re-applies.
+    const p = this.lastRect;
+    if (p && next.x === p.x && next.y === p.y && next.w === p.w && next.h === p.h) return;
+    this.lastRect = next;
     invoke("browser_bounds", { id: this.paneId, ...next }).catch(() => {});
   }
 
