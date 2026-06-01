@@ -171,7 +171,7 @@ func isKeyName(k string) bool {
 // launchAgent runs an agent (claude, codex, …) with a fake-tmux environment so
 // its `tmux split-window` calls land as panes. A `tmux` shim is placed first on
 // PATH; it forwards to `scanline __tmux-compat`.
-func launchAgent(agent string, args []string) {
+func launchAgent(agent string, args []string, extraEnv ...string) {
 	self, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "scanline:", err)
@@ -195,6 +195,7 @@ func launchAgent(agent string, args []string) {
 		"TMUX_PANE=%0",
 		"SCANLINE_BIN="+self,
 	)
+	env = append(env, extraEnv...)
 
 	cmd := exec.Command(agentPath, args...)
 	cmd.Env = env

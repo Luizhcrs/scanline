@@ -339,6 +339,81 @@ body,
   color: #8a8f99;
 }
 
+/* Feed: blocking agent approval cards (centered, prominent). */
+.feed-panel {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 460px;
+  max-width: 80vw;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: #11151f;
+  border: 1px solid #5aa0ff;
+  border-radius: 10px;
+  z-index: 1200;
+  font: 13px Consolas, monospace;
+  color: #c5c8c6;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.feed-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid #1c2230;
+  font-weight: 600;
+  color: #5aa0ff;
+}
+.feed-list {
+  overflow-y: auto;
+}
+.feed-card {
+  padding: 12px;
+  border-bottom: 1px solid #161b26;
+}
+.feed-card:last-child {
+  border-bottom: none;
+}
+.feed-card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.feed-card-body {
+  color: #a8acb3;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 10px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.feed-card-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.feed-btn {
+  background: #1c2230;
+  color: #c5c8c6;
+  border: 1px solid #2d3650;
+  border-radius: 5px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.feed-btn:hover {
+  background: #2d3650;
+}
+.feed-btn.primary {
+  background: #5aa0ff;
+  border-color: #5aa0ff;
+  color: #0a0d13;
+  font-weight: 600;
+}
+.feed-btn.primary:hover {
+  background: #6fb0ff;
+}
+
 /* Flash the focused pane (Ctrl+Shift+H) to locate it. */
 @keyframes pane-flash {
   0%,

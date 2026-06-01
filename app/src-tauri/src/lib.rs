@@ -796,8 +796,10 @@ async fn handle_control_client(
                                 .unwrap()
                                 .insert(req_id.clone(), tx);
                             let _ = app.emit("control://request", v.clone());
+                            // Generous: blocking Feed approvals (feed.ask) wait
+                            // on a human. Normal calls reply in milliseconds.
                             let resp = match tokio::time::timeout(
-                                std::time::Duration::from_secs(20),
+                                std::time::Duration::from_secs(600),
                                 rx,
                             )
                             .await

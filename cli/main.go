@@ -126,6 +126,8 @@ func usage() {
   scanline status [--surface N] <running|waiting|idle|error>  set pane status dot
   scanline hooks <agent> <event>                     agent hook dispatch (stdin JSON)
   scanline hooks setup [--project]                   install Claude Code hooks
+  scanline ask [--title T] [--options a,b,c] <q...>  blocking approval card; prints choice
+  scanline claude-teams [args...]                    launch Claude in teammate mode
   scanline ping                                      health check
   scanline <agent> [args...]                         launch an agent (fake-tmux)`)
 }
@@ -292,6 +294,12 @@ func main() {
 		send("surface.status", m)
 	case "hooks":
 		runHooks(args[1:])
+	case "ask":
+		runAsk(args[1:])
+	case "claude-teams":
+		// Claude Code in teammate mode: same fake-tmux launch, plus a marker
+		// env the agent (and its hooks) can key off of.
+		launchAgent("claude", args[1:], "SCANLINE_CLAUDE_TEAMS=1")
 	case "ping":
 		send("system.ping", nil)
 	case "__tmux-compat":

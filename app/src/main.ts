@@ -7,6 +7,7 @@ import { Layout } from "./layout";
 import { NotificationStore } from "./notifications";
 import { browserDispatch } from "./browserApi";
 import { CommandPalette, FindBar, type PaletteItem } from "./palette";
+import { FeedPanel } from "./feed";
 import type { PaneLike } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -41,6 +42,7 @@ interface ControlCommand {
   ref?: string;
   args?: string[];
   status?: string;
+  options?: string[];
 }
 interface ControlResult {
   ok: boolean;
@@ -92,6 +94,7 @@ class App {
   >();
   private palette = new CommandPalette();
   private findBar = new FindBar();
+  private feed = new FeedPanel();
 
   constructor(
     private sidebar: HTMLElement,
@@ -725,6 +728,18 @@ class App {
       case "notif.clear":
         this.notifs.clearAll();
         return { ok: true };
+      // ---- feed: blocking approval cards ----
+      case "feed.ask": {
+        // Resolves only when the user clicks an option. The pipe client (and
+        // thus the agent's hook) stays blocked until then — Rust uses a 600s
+        // reply timeout to allow for a human decision.
+        const decision = await this.feed.ask({
+          title: cmd.title ?? "Agent request",
+          body: cmd.body ?? cmd.text ?? "",
+          options: cmd.options ?? [],
+        });
+        return { ok: true, result: { decision } };
+      }
       // ---- workspaces ----
       case "workspace.new": {
         const ws = this.newWorkspace();
@@ -791,7 +806,7 @@ const CAPABILITIES = [
   "surface.new", "surface.next", "surface.prev", "surface.close", "surface.select",
   "surface.status",
   "surface.send_text", "surface.send_key", "surface.read_text",
-  "browser.open", "browser", "notify", "notif.list", "notif.clear", "grep",
+  "browser.open", "browser", "notify", "notif.list", "notif.clear", "feed.ask", "grep",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",
   "workspace.close", "workspace.rename",
   "ui.palette", "ui.switcher", "ui.find", "ui.findInDir",
