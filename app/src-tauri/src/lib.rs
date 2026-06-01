@@ -1138,13 +1138,16 @@ unsafe extern "system" fn minmax_subclass(
     _id: usize,
     _data: usize,
 ) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::Foundation::LRESULT;
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows::Win32::UI::Shell::DefSubclassProc;
     use windows::Win32::UI::WindowsAndMessaging::{MINMAXINFO, WM_GETMINMAXINFO};
     if msg == WM_GETMINMAXINFO {
+        // Run tao's handler FIRST so it applies the configured min size
+        // (ptMinTrackSize). Then override only the MAX fields to clamp maximize
+        // to the work area. Returning early without this dropped the min size.
+        let res = DefSubclassProc(hwnd, msg, wparam, lparam);
         let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let mut mi: MONITORINFO = std::mem::zeroed();
         mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -1158,8 +1161,8 @@ unsafe extern "system" fn minmax_subclass(
             mmi.ptMaxSize.y = wa.bottom - wa.top;
             mmi.ptMaxTrackSize.x = wa.right - wa.left;
             mmi.ptMaxTrackSize.y = wa.bottom - wa.top;
-            return LRESULT(0);
         }
+        return res;
     }
     DefSubclassProc(hwnd, msg, wparam, lparam)
 }

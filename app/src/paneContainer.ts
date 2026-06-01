@@ -65,11 +65,9 @@ export class PaneContainer implements PaneLike {
    *  drop can land over a browser pane — cancels an HTML5 drag. With pointer
    *  capture the gesture survives, and elementFromPoint hit-tests the DOM once
    *  the webviews are hidden. */
-  private startPaneDrag(grip: HTMLElement, e: PointerEvent): void {
+  private startPaneDrag(_grip: HTMLElement, e: PointerEvent): void {
     e.preventDefault();
-    grip.setPointerCapture(e.pointerId);
     this.onPaneDragStart?.(); // hide browser webviews so DOM is hit-testable
-    let target: HTMLElement | null = null;
     const clearHighlight = () => {
       document
         .querySelectorAll(".pane-container.drop-target")
@@ -80,21 +78,36 @@ export class PaneContainer implements PaneLike {
       const c = el?.closest<HTMLElement>(".pane-container") ?? null;
       return c && c.dataset.paneId !== String(this.paneId) ? c : null;
     };
+    // Listen on the DOCUMENT, not the grip: the grip is re-created on every
+    // renderStrip() (e.g. a tab notification), which would orphan grip-bound
+    // listeners and strand the drag. `done` makes teardown run exactly once so
+    // pointercancel/Escape can't double-restore — and crucially ALWAYS restores
+    // the browser webviews (else they stay black forever).
+    let done = false;
+    const finish = (dstId: number | null) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel);
+      clearHighlight();
+      this.onPaneDragEnd?.(); // restore browser webviews
+      if (dstId !== null && dstId !== this.paneId) this.onPaneMove?.(dstId);
+    };
     const move = (ev: PointerEvent) => {
       clearHighlight();
-      target = paneUnder(ev.clientX, ev.clientY);
-      target?.classList.add("drop-target");
+      paneUnder(ev.clientX, ev.clientY)?.classList.add("drop-target");
     };
     const up = (ev: PointerEvent) => {
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      clearHighlight();
       const dst = paneUnder(ev.clientX, ev.clientY);
-      this.onPaneDragEnd?.(); // restore browser webviews
-      if (dst?.dataset.paneId) this.onPaneMove?.(Number(dst.dataset.paneId));
+      finish(dst?.dataset.paneId ? Number(dst.dataset.paneId) : null);
     };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
+    const cancel = () => finish(null); // interrupted: restore, no swap
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", cancel);
   }
 
   get kind(): "terminal" | "browser" {
