@@ -133,7 +133,12 @@ fn pty_spawn(
         loop {
             match reader.read(&mut tmp) {
                 Ok(0) => break,
-                Ok(n) => rbuf.lock().unwrap().extend_from_slice(&tmp[..n]),
+                // Poison-tolerant: a panic elsewhere must not silently kill the
+                // pty output pipeline (would look like a frozen terminal).
+                Ok(n) => rbuf
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend_from_slice(&tmp[..n]),
                 Err(_) => break,
             }
         }
@@ -146,7 +151,7 @@ fn pty_spawn(
         loop {
             thread::sleep(std::time::Duration::from_millis(8));
             let chunk = {
-                let mut b = buffer.lock().unwrap();
+                let mut b = buffer.lock().unwrap_or_else(|e| e.into_inner());
                 if b.is_empty() {
                     if done.load(Ordering::SeqCst) {
                         break;
@@ -983,7 +988,55 @@ fn start_control_server(app: AppHandle) {
 fn start_control_server(_app: AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Recolor the native title bar to match the app (dark) instead of the user's
+/// Windows accent color, and use light caption text. Keeps the native frame,
+/// icon, buttons, and resize. No-op below Windows 11 build 22000.
+#[cfg(windows)]
+fn apply_dark_titlebar(window: &tauri::WebviewWindow) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            // BOOL is 4 bytes; pass a u32 = TRUE.
+            let dark: u32 = 1;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &dark as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+            // COLORREF is 0x00BBGGRR; app background #0d1017.
+            let color: u32 = 0x0017_100d;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_CAPTION_COLOR,
+                &color as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
+
 pub fn run() {
+    // Capture panics to %APPDATA%\scanline\crash.log so an occasional crash
+    // leaves evidence (message + location) instead of vanishing.
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let line = format!("panic: {info}\n");
+        if let Some(p) = config_path().map(|c| c.with_file_name("crash.log")) {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+                let _ = f.write_all(line.as_bytes());
+            }
+        }
+        eprintln!("{line}");
+        prev(info);
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -992,6 +1045,10 @@ pub fn run() {
         .manage(ControlPending::default())
         .setup(|app| {
             start_control_server(app.handle().clone());
+            #[cfg(windows)]
+            if let Some(win) = app.get_webview_window("main") {
+                apply_dark_titlebar(&win);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -32,6 +32,7 @@ const DEFAULT_BINDINGS: Record<string, string> = {
   settings: "ctrl+,",
   minimal: "ctrl+shift+m",
   fullscreen: "f11",
+  help: "ctrl+/",
 };
 
 /** Recreate a single surface from its restore spec. */
@@ -242,6 +243,92 @@ class App {
         void invoke("save_session", { json });
       }
     }, 8000);
+  }
+
+  private helpEl?: HTMLElement;
+  /** Toggle the keyboard-shortcut cheat sheet (Ctrl+/). */
+  private toggleHelp(): void {
+    if (this.helpEl) {
+      this.helpEl.remove();
+      this.helpEl = undefined;
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "settings-overlay";
+    overlay.addEventListener("mousedown", (e) => {
+      if (e.target === overlay) this.toggleHelp();
+    });
+    const card = document.createElement("div");
+    card.className = "settings-card help-card";
+    const title = document.createElement("div");
+    title.className = "settings-title";
+    title.textContent = "Keyboard shortcuts";
+    card.appendChild(title);
+    const b = (name: string) => config().keybindings[name] || DEFAULT_BINDINGS[name];
+    const SECTIONS: Array<[string, Array<[string, string]>]> = [
+      ["General", [
+        [b("palette"), "Command palette"],
+        [b("switcher"), "Switch workspace / pane"],
+        ["Ctrl+/", "This help"],
+        [b("settings"), "Settings"],
+        [b("minimal"), "Minimal mode"],
+        [b("fullscreen"), "Fullscreen"],
+        ["Ctrl+B", "Toggle sidebar"],
+        [b("find"), "Find"],
+        [b("findInDir"), "Find in directory"],
+      ]],
+      ["Workspaces", [
+        [b("newWorkspace"), "New workspace"],
+        ["Alt+1..8", "Jump to workspace (Alt+9 = last)"],
+        ["Alt+Shift+, / .", "Previous / next workspace"],
+      ]],
+      ["Panes & splits", [
+        ["Alt+Shift+Right", "Split right"],
+        ["Alt+Shift+Down", "Split down"],
+        ["Alt+Shift+B", "Open browser pane"],
+        ["Alt+Arrows", "Move focus between panes"],
+        ["Alt+Shift+Z", "Zoom pane"],
+        ["Alt+Shift+E", "Equalize splits"],
+        ["Ctrl+Shift+H", "Flash focused pane"],
+        ["Ctrl+Shift+W", "Close pane"],
+      ]],
+      ["Tabs", [
+        [b("newTab"), "New terminal tab"],
+        ["Ctrl+W", "Close tab"],
+        ["Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"],
+        ["Ctrl+1..9", "Jump to tab"],
+      ]],
+      ["Terminal", [
+        ["Ctrl+Shift+K", "Clear scrollback"],
+        ["Ctrl+= / Ctrl+- / Ctrl+0", "Font size (browser: page zoom)"],
+        ["Ctrl+Shift+C / V", "Copy / paste"],
+        ["Ctrl+Shift+A", "Select all"],
+      ]],
+      ["Notifications", [
+        ["Alt+Shift+N", "Notifications panel"],
+        ["Alt+Shift+U", "Jump to latest unread"],
+      ]],
+    ];
+    for (const [heading, rows] of SECTIONS) {
+      const h = document.createElement("div");
+      h.className = "help-section";
+      h.textContent = heading;
+      card.appendChild(h);
+      for (const [keys, desc] of rows) {
+        const row = document.createElement("div");
+        row.className = "help-row";
+        const k = document.createElement("kbd");
+        k.className = "help-key";
+        k.textContent = keys;
+        const d = document.createElement("span");
+        d.textContent = desc;
+        row.append(k, d);
+        card.appendChild(row);
+      }
+    }
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    this.helpEl = overlay;
   }
 
   private fullscreen = false;
@@ -610,6 +697,7 @@ class App {
       { id: "notif", label: "Notifications", hint: "Alt+Shift+N", run: () => this.notifs.togglePanel() },
       { id: "sidebar", label: "Toggle Sidebar", hint: "Ctrl+B", run: () => this.toggleSidebar() },
       { id: "find", label: "Find…", hint: "Ctrl+F", run: () => this.openFind() },
+      { id: "help", label: "Keyboard Shortcuts", hint: "Ctrl+/", run: () => this.toggleHelp() },
       { id: "settings", label: "Settings…", hint: "Ctrl+,", run: () => this.settings.open() },
       { id: "minimal", label: "Toggle Minimal Mode", hint: "Ctrl+Shift+M", run: () => this.toggleMinimal() },
       { id: "fullscreen", label: "Toggle Fullscreen", hint: "F11", run: () => void this.toggleFullscreen() },
@@ -720,7 +808,13 @@ class App {
       settings: () => this.settings.open(),
       minimal: () => this.toggleMinimal(),
       fullscreen: () => void this.toggleFullscreen(),
+      help: () => this.toggleHelp(),
     };
+    // Escape closes the help sheet if open.
+    if (key === "escape" && this.helpEl) {
+      this.toggleHelp();
+      return true;
+    }
     const binds = { ...DEFAULT_BINDINGS, ...config().keybindings };
     for (const name of Object.keys(actions)) {
       if (binds[name]?.toLowerCase() === chord) {
