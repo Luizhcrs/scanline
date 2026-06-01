@@ -221,12 +221,19 @@ export class BrowserPane implements PaneLike {
   // while visible and reflect it into the address bar.
   private isVisible = true;
   private urlPoll?: ReturnType<typeof setInterval>;
+  private pollInFlight = false;
   private startUrlPoll(): void {
     if (this.urlPoll) return;
-    this.urlPoll = setInterval(() => void this.syncUrl(), 800);
+    this.urlPoll = setInterval(() => void this.syncUrl(), 2000);
   }
   private async syncUrl(): Promise<void> {
     if (!this.created || this.disposed || !this.isVisible || document.hidden) return;
+    // Never have two CDP calls outstanding: each runs a closure on the native
+    // main thread, so if one stalls the 2s timer would otherwise pile them up
+    // and freeze the window's message pump (Application Hang).
+    if (this.pollInFlight) return;
+    this.pollInFlight = true;
+    void invoke("log_activity", { line: `${Date.now()} urlpoll ${this.paneId}` }).catch(() => {});
     try {
       const raw = await invoke<string>("browser_cdp", {
         id: this.paneId,
@@ -241,6 +248,8 @@ export class BrowserPane implements PaneLike {
       }
     } catch {
       /* page mid-navigation / not ready — try again next tick */
+    } finally {
+      this.pollInFlight = false;
     }
   }
 
