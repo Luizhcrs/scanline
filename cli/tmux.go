@@ -10,6 +10,54 @@ import (
 	"strings"
 )
 
+// parseTmuxSplit extracts the direction and optional command from split-window
+// args. dir defaults to "col" (tmux vertical = stacked = scanline col).
+func parseTmuxSplit(args []string) (dir, command string) {
+	dir = "col"
+	var cmdParts []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-h":
+			dir = "row"
+		case a == "-v":
+			dir = "col"
+		case a == "--":
+			cmdParts = append(cmdParts, args[i+1:]...)
+			i = len(args)
+		case a == "-t" || a == "-c" || a == "-l" || a == "-F":
+			i++ // value flag — skip its argument
+		case strings.HasPrefix(a, "-"):
+			// other boolean flags (-d, -P, -b, ...) ignored
+		default:
+			cmdParts = append(cmdParts, args[i:]...)
+			i = len(args)
+		}
+	}
+	return dir, strings.Join(cmdParts, " ")
+}
+
+// tmuxSendKeys extracts the key tokens from send-keys args, skipping -t <val>
+// and other flag tokens.
+func tmuxSendKeys(args []string) []string {
+	var keys []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			keys = append(keys, args[i+1:]...)
+			i = len(args)
+		case a == "-t":
+			i++ // skip target value
+		case strings.HasPrefix(a, "-"):
+			// -l (literal), -R, etc — boolean flags, no value
+		default:
+			keys = append(keys, a)
+		}
+	}
+	return keys
+}
+
 // runTmuxCompat translates the subset of `tmux` commands that coding agents use
 // into Scanline pipe commands. Unknown/unsupported subcommands exit 0 so the
 // agent keeps working (tmux returns success for these no-ops).
@@ -19,31 +67,10 @@ func runTmuxCompat(args []string) {
 	}
 	switch args[0] {
 	case "split-window", "splitw":
-		dir := "col" // tmux's default split is vertical (stacked)
-		var cmdParts []string
-		rest := args[1:]
-		for i := 0; i < len(rest); i++ {
-			a := rest[i]
-			switch {
-			case a == "-h":
-				dir = "row" // horizontal = side by side
-			case a == "-v":
-				dir = "col"
-			case a == "--":
-				cmdParts = append(cmdParts, rest[i+1:]...)
-				i = len(rest)
-			case a == "-t" || a == "-c" || a == "-l" || a == "-F":
-				i++ // value flag — skip its argument
-			case strings.HasPrefix(a, "-"):
-				// other boolean flags (-d, -P, -b, ...) ignored
-			default:
-				cmdParts = append(cmdParts, rest[i:]...)
-				i = len(rest)
-			}
-		}
+		dir, cmd := parseTmuxSplit(args[1:])
 		m := map[string]any{"dir": dir}
-		if len(cmdParts) > 0 {
-			m["command"] = strings.Join(cmdParts, " ")
+		if cmd != "" {
+			m["command"] = cmd
 		}
 		sendQuiet("pane.split", m)
 	case "select-pane", "selectp":
@@ -71,26 +98,7 @@ func runTmuxCompat(args []string) {
 		// Each non-flag arg is a key: a key-name (Enter, C-c, Up, …) -> send_key,
 		// anything else -> literal send_text. Target the caller's pane (env).
 		surf := envSurface()
-		var keys []string
-		rest := args[1:]
-		for i := 0; i < len(rest); i++ {
-			a := rest[i]
-			switch {
-			case a == "--":
-				// Explicit end-of-flags: everything after is literal keys, no
-				// further flag parsing. Must be checked before the "-" prefix arm.
-				keys = append(keys, rest[i+1:]...)
-				i = len(rest)
-			case a == "-t":
-				i++ // skip target value; we use the caller surface
-			case strings.HasPrefix(a, "-"):
-				// -l (literal), -R, etc — ignored (boolean flags, no value)
-			default:
-				// Each non-flag token is one key; do NOT greedily slurp rest[i:]
-				// — that would bundle multi-token lists into a single key string.
-				keys = append(keys, a)
-			}
-		}
+		keys := tmuxSendKeys(args[1:])
 		for _, k := range keys {
 			m := map[string]any{}
 			if surf != nil {

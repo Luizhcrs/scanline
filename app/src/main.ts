@@ -92,7 +92,7 @@ interface ControlResult {
  *    S-Tab/BTab -> \x1b[Z  (reverse-tab)
  *  Modifier prefixes C- (ctrl), M- (alt/meta), S- (shift) can be combined
  *  and are resolved recursively so e.g. "C-M-x" works. */
-function keyToBytes(key: string): string {
+export function keyToBytes(key: string): string {
   const k = key.toLowerCase();
   const named: Record<string, string> = {
     enter: "\r",

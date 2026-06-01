@@ -101,6 +101,46 @@ func runHooks(args []string) {
 	os.Exit(0)
 }
 
+// rebuildHooks strips every prior scanline-owned entry across all events and
+// reinstalls the current set. selfCmd returns the full command string for a
+// given event (e.g. `"<exe>" hooks claude Stop`).
+func rebuildHooks(hooks map[string]any, selfCmd func(event string) string) map[string]any {
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+	// Strip EVERY prior scanline-owned entry. This deduplicates and removes
+	// orphans from events we no longer install (e.g. Pre/PostToolUse from older
+	// versions) and stale exe paths after a move/reinstall.
+	for ev, raw := range hooks {
+		arr, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		kept := make([]any, 0, len(arr))
+		for _, e := range arr {
+			if !isScanlineHook(e) {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) == 0 {
+			delete(hooks, ev)
+		} else {
+			hooks[ev] = kept
+		}
+	}
+	// Per-turn events only (not Pre/PostToolUse): a prompt submit flips the dot
+	// to running for the whole turn, Stop clears it, Notification flags waiting.
+	for _, event := range []string{"Notification", "Stop", "UserPromptSubmit"} {
+		cmd := selfCmd(event)
+		entry := map[string]any{
+			"hooks": []any{map[string]any{"type": "command", "command": cmd}},
+		}
+		arr, _ := hooks[event].([]any)
+		hooks[event] = append(arr, entry)
+	}
+	return hooks
+}
+
 // setupHooks writes hook config so an agent calls back into scanline.
 // Currently: Claude Code (~/.claude/settings.json or ./.claude/settings.json).
 func setupHooks(args []string) {
@@ -136,42 +176,9 @@ func setupHooks(args []string) {
 	}
 
 	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
-		hooks = map[string]any{}
-	}
-	// First strip EVERY prior scanline-owned entry across all events. This both
-	// dedups and removes orphans from events we no longer install (e.g. the
-	// Pre/PostToolUse hooks older versions added) and stale exe paths after a
-	// move/reinstall. Comparing exact command strings instead would accumulate.
-	for ev, raw := range hooks {
-		arr, ok := raw.([]any)
-		if !ok {
-			continue
-		}
-		kept := make([]any, 0, len(arr))
-		for _, e := range arr {
-			if !isScanlineHook(e) {
-				kept = append(kept, e)
-			}
-		}
-		if len(kept) == 0 {
-			delete(hooks, ev)
-		} else {
-			hooks[ev] = kept
-		}
-	}
-	// Per-turn events only (not Pre/PostToolUse): a prompt submit flips the dot
-	// to running for the whole turn, Stop clears it, Notification flags waiting.
-	// Installing tool events would fire a scanline.exe spawn on EVERY tool call
-	// of EVERY Claude session on the machine just to set the same "running".
-	for _, event := range []string{"Notification", "Stop", "UserPromptSubmit"} {
-		cmd := fmt.Sprintf("\"%s\" hooks claude %s", self, event)
-		entry := map[string]any{
-			"hooks": []any{map[string]any{"type": "command", "command": cmd}},
-		}
-		arr, _ := hooks[event].([]any)
-		hooks[event] = append(arr, entry)
-	}
+	hooks = rebuildHooks(hooks, func(event string) string {
+		return fmt.Sprintf("\"%s\" hooks claude %s", self, event)
+	})
 	settings["hooks"] = hooks
 
 	out, _ := json.MarshalIndent(settings, "", "  ")

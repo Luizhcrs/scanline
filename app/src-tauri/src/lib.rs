@@ -17,6 +17,113 @@ use tauri::{
     Wry,
 };
 
+// ---- Logging facility (std-only, no crates) ----
+//
+// Single global append-mode file at %APPDATA%\scanline\scanline.log.
+// Each write = one mutex lock + one writeln to an already-open fd.
+// Size-rotates at 1 MiB (rename .log -> .log.1, reopen fresh).
+// No-ops if uninitialized so the panic hook can call it pre-init safely.
+// Never panics, never unwraps -- all I/O is best-effort.
+
+mod log {
+    use std::fs::{File, OpenOptions};
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    pub enum Level { Info, Warn, Error }
+
+    struct LogState { file: File, bytes: u64 }
+
+    static LOG: OnceLock<Mutex<LogState>> = OnceLock::new();
+
+    const LOG_MAX: u64 = 1024 * 1024;
+
+    pub fn init(log_path: std::path::PathBuf) {
+        if let Some(dir) = log_path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let file = match OpenOptions::new().create(true).append(true).open(&log_path) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let bytes = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let _ = LOG.set(Mutex::new(LogState { file, bytes }));
+    }
+
+    pub fn write(level: Level, area: &str, msg: &str) {
+        let cell = match LOG.get() {
+            Some(c) => c,
+            None => return,
+        };
+        let lv = match level { Level::Info => "INFO ", Level::Warn => "WARN ", Level::Error => "ERROR" };
+        let ts = fmt_rfc3339();
+        let line = format!("{ts} {lv} {area:<8} {msg}\n");
+        let mut guard = match cell.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        if guard.bytes > LOG_MAX {
+            if let Some(log_path) = super::log_path() {
+                let backup = log_path.with_extension("log.1");
+                let _ = std::fs::rename(&log_path, &backup);
+                if let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&log_path) {
+                    guard.file = fresh;
+                    guard.bytes = 0;
+                }
+            }
+        }
+        let _ = guard.file.write_all(line.as_bytes());
+        guard.bytes += line.len() as u64;
+    }
+
+    fn fmt_rfc3339() -> String {
+        let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let s = d.as_secs();
+        let ms = d.subsec_millis();
+        let (y, mo, day, h, mi, sec) = secs_to_civil(s);
+        format!("{y:04}-{mo:02}-{day:02}T{h:02}:{mi:02}:{sec:02}.{ms:03}Z")
+    }
+
+    fn secs_to_civil(s: u64) -> (u32, u32, u32, u32, u32, u32) {
+        let sec = (s % 60) as u32;
+        let min = ((s / 60) % 60) as u32;
+        let hour = ((s / 3600) % 24) as u32;
+        // days since Unix epoch
+        let z = s / 86400 + 719468;
+        let era = z / 146097;
+        let doe = z - era * 146097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = if month <= 2 { y + 1 } else { y };
+        (year as u32, month as u32, day, hour, min, sec)
+    }
+}
+
+fn log_path() -> Option<std::path::PathBuf> {
+    config_path().map(|c| c.with_file_name("scanline.log"))
+}
+
+macro_rules! log_info {
+    ($area:expr, $($arg:tt)*) => {
+        crate::log::write(crate::log::Level::Info, $area, &format!($($arg)*))
+    };
+}
+macro_rules! log_warn {
+    ($area:expr, $($arg:tt)*) => {
+        crate::log::write(crate::log::Level::Warn, $area, &format!($($arg)*))
+    };
+}
+macro_rules! log_error {
+    ($area:expr, $($arg:tt)*) => {
+        crate::log::write(crate::log::Level::Error, $area, &format!($($arg)*))
+    };
+}
+
 /// A live pseudo-terminal: its master (for resize), input writer, and the
 /// child process handle (kept alive so the shell isn't reaped).
 struct Pty {
@@ -128,8 +235,12 @@ fn pty_spawn(
         cmd.env("SCANLINE_SURFACE_ID", sid.to_string());
     }
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| {
+        log_warn!("pty", "spawn failed pane={}: {}", id, e);
+        e.to_string()
+    })?;
     let pid = child.process_id().unwrap_or(0);
+    log_info!("pty", "spawn pane={} pid={} cols={} rows={} program={}", id, pid, cols, rows, program);
     // Close our handle to the slave; the child owns it now.
     drop(pair.slave);
 
@@ -276,11 +387,7 @@ fn pty_spawn(
             let chunk = {
                 let mut b = lock.lock().unwrap_or_else(|e| e.into_inner());
                 had_leftover = b.len() > EMIT_MAX;
-                if b.len() <= EMIT_MAX {
-                    std::mem::take(&mut *b)
-                } else {
-                    b.drain(..EMIT_MAX).collect()
-                }
+                take_chunk(&mut b, EMIT_MAX)
             };
             if chunk.is_empty() {
                 continue;
@@ -314,11 +421,23 @@ fn pty_spawn(
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&id);
+            log_info!("pty", "exit pane={}", id);
             let _ = app2.emit(&exit_event, ());
         }
     });
 
     Ok(())
+}
+
+/// Drain up to `max` bytes from `buf`: if `buf.len() <= max` the whole buffer is
+/// returned and `buf` is left empty; otherwise exactly `max` bytes are returned
+/// (front of the buffer) and the remainder is kept in `buf` in order.
+fn take_chunk(buf: &mut Vec<u8>, max: usize) -> Vec<u8> {
+    if buf.len() <= max {
+        std::mem::take(buf)
+    } else {
+        buf.drain(..max).collect()
+    }
 }
 
 /// Write user input to a pty. Input arrives as raw bytes (not a String) so
@@ -457,6 +576,36 @@ async fn repo_info(cwd: String) -> Result<serde_json::Value, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Pure parser: extract LISTENING port numbers owned by the given pid set from
+/// `netstat -ano` output. Handles TCP IPv4 (`0.0.0.0:PORT`) and IPv6
+/// (`[::]:PORT`) via `rsplit(':')`. Deduplicates and returns sorted ascending.
+fn parse_listening_ports(
+    netstat_out: &str,
+    pids: &std::collections::HashSet<u32>,
+) -> Vec<u16> {
+    let mut ports: Vec<u16> = Vec::new();
+    for line in netstat_out.lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 5 {
+            continue;
+        }
+        let pid: u32 = cols[cols.len() - 1].parse().unwrap_or(0);
+        if !pids.contains(&pid) {
+            continue;
+        }
+        if let Some(port) = cols[1].rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
+            if !ports.contains(&port) {
+                ports.push(port);
+            }
+        }
+    }
+    ports.sort_unstable();
+    ports
+}
+
 /// Listening TCP ports owned by a pane's process tree (the shell + descendants).
 #[tauri::command]
 async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, String> {
@@ -492,34 +641,38 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
         let trusted: std::collections::HashSet<u32> =
             candidate_pids.intersection(&pids).copied().collect();
 
-        let mut ports: Vec<u16> = Vec::new();
-        // netstat -ano lists TCP + TCPv6; we filter on the LISTENING column so
-        // IPv6 listeners ([::]:PORT, common for dev servers) are included too.
-        if let Some(out) = netstat_out {
-            for line in out.lines() {
-                if !line.contains("LISTENING") {
-                    continue;
-                }
-                let cols: Vec<&str> = line.split_whitespace().collect();
-                if cols.len() < 5 {
-                    continue;
-                }
-                let pid: u32 = cols[cols.len() - 1].parse().unwrap_or(0);
-                if !trusted.contains(&pid) {
-                    continue;
-                }
-                if let Some(port) = cols[1].rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
-                    if !ports.contains(&port) {
-                        ports.push(port);
-                    }
-                }
-            }
-        }
-        ports.sort_unstable();
-        ports
+        let out_str = netstat_out.as_deref().unwrap_or("");
+        parse_listening_ports(out_str, &trusted)
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Pure parser: convert raw rg/findstr output into `{file, line, text}` objects.
+///
+/// Splitting assumption: paths are CWD-RELATIVE, so the first two ':' delimiters
+/// separate file and line number (`splitn(3, ':')`). An absolute Windows path like
+/// `C:\path\foo:3:hit` mis-splits on the drive colon, yielding `file="C"`. This
+/// is a known limitation: rg is always invoked with a relative `.` target, so
+/// absolute paths do not appear in normal use. The test below pins this behaviour.
+fn parse_grep_lines(raw: &str) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for line in raw.lines().take(200) {
+        // file:line:text  (paths are cwd-relative, so the first two colons split it)
+        let mut it = line.splitn(3, ':');
+        let file = it.next().unwrap_or("");
+        let lno = it.next().unwrap_or("");
+        let text = it.next().unwrap_or("");
+        if file.is_empty() || lno.is_empty() {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "file": file,
+            "line": lno.parse::<u32>().unwrap_or(0),
+            "text": text.trim().chars().take(160).collect::<String>(),
+        }));
+    }
+    out
 }
 
 /// Find-in-directory: ripgrep if present, else findstr. Returns {file,line,text}.
@@ -540,23 +693,7 @@ async fn grep_dir(cwd: String, query: String) -> Result<Vec<serde_json::Value>, 
         .or_else(|| run_capture("findstr", &["/s", "/n", "/i", &findstr_pat, "*"], Some(&cwd)))
         .unwrap_or_default();
 
-        let mut out = Vec::new();
-        for line in raw.lines().take(200) {
-            // file:line:text  (paths are cwd-relative, so the first two colons split it)
-            let mut it = line.splitn(3, ':');
-            let file = it.next().unwrap_or("");
-            let lno = it.next().unwrap_or("");
-            let text = it.next().unwrap_or("");
-            if file.is_empty() || lno.is_empty() {
-                continue;
-            }
-            out.push(serde_json::json!({
-                "file": file,
-                "line": lno.parse::<u32>().unwrap_or(0),
-                "text": text.trim().chars().take(160).collect::<String>(),
-            }));
-        }
-        out
+        parse_grep_lines(&raw)
     })
     .await
     .map_err(|e| e.to_string())
@@ -667,6 +804,26 @@ fn edit_config() -> Result<(), String> {
     Ok(())
 }
 
+/// Pure graph walk: return the set containing `root` and all transitive children
+/// found in `children`. Cycle-safe via the `HashSet::insert` guard (a pid already
+/// in the set is not pushed again). Works on any platform — the Win32 snapshot
+/// building that populates `children` is kept in `descendant_pids`.
+fn collect_descendants(
+    root: u32,
+    children: &std::collections::HashMap<u32, Vec<u32>>,
+) -> std::collections::HashSet<u32> {
+    let mut set = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(p) = stack.pop() {
+        if set.insert(p) {
+            if let Some(kids) = children.get(&p) {
+                stack.extend(kids);
+            }
+        }
+    }
+    set
+}
+
 /// The pid set rooted at `root` (process + all descendants) via a Toolhelp snapshot.
 #[cfg(windows)]
 fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
@@ -694,21 +851,13 @@ fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
             let _ = windows::Win32::Foundation::CloseHandle(snap);
         }
     }
-    let mut set = std::collections::HashSet::new();
-    let mut stack = vec![root];
-    while let Some(p) = stack.pop() {
-        if set.insert(p) {
-            if let Some(kids) = children.get(&p) {
-                stack.extend(kids);
-            }
-        }
-    }
-    set
+    collect_descendants(root, &children)
 }
 
 #[cfg(not(windows))]
 fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
-    std::collections::HashSet::from([root])
+    let children = std::collections::HashMap::new();
+    collect_descendants(root, &children)
 }
 
 // ---- Browser panes (native child webviews) ----
@@ -772,6 +921,7 @@ async fn browser_open(
     // It reads the current epoch from BrowserManager via the AppHandle to detect
     // whether it is the live webview or a stale dying predecessor. (bug #623)
     let nav_app_handle = app.clone();
+    let log_url = url.clone();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app2 = app.clone();
     app.run_on_main_thread(move || {
@@ -829,9 +979,23 @@ async fn browser_open(
     })
     .map_err(|e| e.to_string())?;
 
-    let webview = rx
+    let webview = match rx
         .await
-        .map_err(|_| "browser_open: main-thread closure dropped".to_string())??;
+        .map_err(|_| "browser_open: main-thread closure dropped".to_string())
+    {
+        Ok(Ok(w)) => {
+            log_info!("browser", "open pane={} url={}", id, log_url);
+            w
+        }
+        Ok(Err(e)) => {
+            log_warn!("browser", "open failed pane={} url={}: {}", id, log_url, e);
+            return Err(e);
+        }
+        Err(e) => {
+            log_warn!("browser", "open failed pane={} url={}: {}", id, log_url, e);
+            return Err(e);
+        }
+    };
     // Update nav_epochs with the live value (the Arc clone above was a snapshot).
     {
         let mut epochs = browsers.nav_epochs.lock().unwrap_or_else(|e| e.into_inner());
@@ -930,6 +1094,7 @@ fn browser_forward(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> 
 fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Result<(), String> {
     let v = lock_views(&browsers).remove(&id);
     if let Some(v) = v {
+        log_info!("browser", "close pane={}", id);
         let _ = app.run_on_main_thread(move || {
             let _ = v.close();
         });
@@ -1146,7 +1311,7 @@ async fn handle_control_client(
                                 }
                                 None => Err(format!("no browser pane {id}")),
                             };
-                            eprintln!("debug.cdp id={id} => {res:?}");
+                            log_info!("control", "debug.cdp id={} => {:?}", id, res);
                             format!("{}\n", serde_json::json!({ "debug": format!("{res:?}") }))
                         } else if let Some(req_id) =
                             v.get("id").and_then(|x| x.as_str()).map(str::to_string)
@@ -1227,6 +1392,8 @@ async fn handle_control_client(
                                 }
                                 _ => {
                                     // timeout or sender dropped — guard.drop() will clean up
+                                    let method_str = v.get("method").and_then(|x| x.as_str()).unwrap_or("?");
+                                    log_warn!("control", "rpc no reply/timeout method={} id={}", method_str, req_id);
                                     serde_json::json!({"id": req_id, "ok": false, "error": "no reply / timeout"})
                                 }
                             };
@@ -1261,7 +1428,7 @@ fn start_control_server(app: AppHandle) {
         {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("control: cannot create {CONTROL_PIPE}: {e}");
+                log_error!("control", "cannot create {}: {}", CONTROL_PIPE, e);
                 return;
             }
         };
@@ -1273,7 +1440,7 @@ fn start_control_server(app: AppHandle) {
                     match ServerOptions::new().create(CONTROL_PIPE) {
                         Ok(s) => break s,
                         Err(e) => {
-                            eprintln!("control: recreate failed (retrying): {e}");
+                            log_error!("control", "pipe recreate failed: {}", e);
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
@@ -1320,20 +1487,10 @@ fn setup_agent_hooks(app: &tauri::AppHandle) {
             .stdin(std::process::Stdio::null())
             .output();
         if let Ok(o) = out {
-            if !o.status.success() {
-                if let Some(p) = config_path().map(|c| c.with_file_name("hooks.log")) {
-                    if let Some(dir) = p.parent() {
-                        let _ = std::fs::create_dir_all(dir);
-                    }
-                    use std::io::Write;
-                    if let Ok(mut f) =
-                        std::fs::OpenOptions::new().create(true).append(true).open(&p)
-                    {
-                        let _ = f.write_all(b"hooks setup failed:\n");
-                        let _ = f.write_all(&o.stderr);
-                        let _ = f.write_all(b"\n");
-                    }
-                }
+            if o.status.success() {
+                log_info!("hooks", "setup ok");
+            } else {
+                log_warn!("hooks", "setup failed: {}", String::from_utf8_lossy(&o.stderr));
             }
         }
     });
@@ -1426,9 +1583,17 @@ pub fn run() {
                 let _ = f.write_all(line.as_bytes());
             }
         }
+        // Cross-reference into scanline.log for the unified timeline. log::write
+        // is a no-op if LOG is uninitialized (pre-setup panic) so no recursion risk.
+        log_error!("panic", "{}", info);
         eprintln!("{line}");
         prev(info);
     }));
+
+    // Init logging after the panic hook so even very-early panics cross-reference.
+    if let Some(p) = log_path() {
+        log::init(p);
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -1439,6 +1604,7 @@ pub fn run() {
         .manage(ControlPending::default())
         .manage(FrontendReady::default())
         .setup(|app| {
+            log_info!("app", "scanline started v{} pid={}", env!("CARGO_PKG_VERSION"), std::process::id());
             start_control_server(app.handle().clone());
             #[cfg(windows)]
             {
@@ -1484,12 +1650,14 @@ pub fn run() {
                 // Poison-tolerant locks: a panicked pty thread must not prevent
                 // child shells from being killed (which would hang the app on close). (bug #1282)
                 if let Some(ptys) = app.try_state::<PtyManager>() {
-                    for (_, mut p) in ptys
-                        .ptys
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .drain()
-                    {
+                    let mut map = ptys.ptys.lock().unwrap_or_else(|e| e.into_inner());
+                    let pty_count = map.len();
+                    let browser_count = app
+                        .try_state::<BrowserManager>()
+                        .map(|b| lock_views(&b).len())
+                        .unwrap_or(0);
+                    log_info!("app", "shutdown: killing {} ptys, {} browsers", pty_count, browser_count);
+                    for (_, mut p) in map.drain() {
                         let _ = p.child.kill();
                     }
                 }
@@ -1501,4 +1669,192 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    // ---- parse_listening_ports ----
+
+    fn pid_set(pids: &[u32]) -> HashSet<u32> {
+        pids.iter().copied().collect()
+    }
+
+    #[test]
+    fn ports_tcp_ipv4_included() {
+        let out = "  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       1234";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert_eq!(ports, vec![3000]);
+    }
+
+    #[test]
+    fn ports_tcp_ipv6_included() {
+        let out = "  TCP    [::]:8080              [::]:0                 LISTENING       1234";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert_eq!(ports, vec![8080]);
+    }
+
+    #[test]
+    fn ports_pid_not_in_set_excluded() {
+        let out = "  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       9999";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert!(ports.is_empty());
+    }
+
+    #[test]
+    fn ports_established_excluded() {
+        let out = "  TCP    0.0.0.0:3000           0.0.0.0:0              ESTABLISHED     1234";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert!(ports.is_empty());
+    }
+
+    #[test]
+    fn ports_dedup_v4_and_v6_same_port() {
+        let out = "\
+  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       1234\n\
+  TCP    [::]:3000              [::]:0                 LISTENING       1234";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert_eq!(ports, vec![3000]);
+    }
+
+    #[test]
+    fn ports_sorted_ascending() {
+        let out = "\
+  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       1234\n\
+  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       1234\n\
+  TCP    0.0.0.0:443            0.0.0.0:0              LISTENING       1234";
+        let ports = parse_listening_ports(out, &pid_set(&[1234]));
+        assert_eq!(ports, vec![443, 3000, 8080]);
+    }
+
+    // ---- parse_grep_lines ----
+
+    #[test]
+    fn grep_basic_line() {
+        let raw = "src/main.rs:42:  let x = 1";
+        let out = parse_grep_lines(raw);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["file"], "src/main.rs");
+        assert_eq!(out[0]["line"], 42);
+        assert_eq!(out[0]["text"], "let x = 1");
+    }
+
+    #[test]
+    fn grep_text_trimmed() {
+        let raw = "src/foo.rs:1:   spaces   ";
+        let out = parse_grep_lines(raw);
+        assert_eq!(out[0]["text"], "spaces");
+    }
+
+    #[test]
+    fn grep_missing_line_number_field_skipped() {
+        // Only one colon — splitn(3,':') yields file and lno="" -> skipped.
+        // file="src/foo.rs", lno="no colon here at all", text="" -> lno is non-empty
+        // so it proceeds. A truly missing field means only one segment; test that:
+        let raw2 = "just_a_word_no_colons";
+        let out = parse_grep_lines(raw2);
+        assert!(out.is_empty(), "line with no colons must be skipped");
+    }
+
+    #[test]
+    fn grep_text_truncated_at_160_chars() {
+        let long = "x".repeat(200);
+        let raw = format!("src/foo.rs:1:{}", long);
+        let out = parse_grep_lines(&raw);
+        let text = out[0]["text"].as_str().unwrap();
+        assert_eq!(text.chars().count(), 160);
+    }
+
+    #[test]
+    fn grep_non_numeric_line_number_becomes_zero() {
+        let raw = "src/foo.rs:abc:some text";
+        let out = parse_grep_lines(raw);
+        assert_eq!(out[0]["line"], 0);
+    }
+
+    // Pin the splitn(3,':') relative-path assumption:
+    // An absolute Windows path `C:\path:3:hit` mis-splits on the drive colon
+    // so `file` becomes "C" (not the full path). This is expected and documented
+    // in parse_grep_lines. rg is always invoked with a relative "." target so
+    // absolute paths do not appear in normal use.
+    #[test]
+    fn grep_absolute_windows_path_misparse_documented() {
+        // Input as rg would emit for an absolute path (unlikely but possible).
+        let raw = r"C:\path\foo.rs:3:hit";
+        let out = parse_grep_lines(raw);
+        assert_eq!(
+            out[0]["file"], "C",
+            "absolute Windows path mis-splits: file is the drive letter, not the full path"
+        );
+        assert_eq!(out[0]["line"], 0); // r"\path\foo.rs" is not a number
+    }
+
+    // ---- collect_descendants ----
+
+    fn children_map(pairs: &[(u32, u32)]) -> HashMap<u32, Vec<u32>> {
+        let mut m: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &(parent, child) in pairs {
+            m.entry(parent).or_default().push(child);
+        }
+        m
+    }
+
+    #[test]
+    fn descendants_root_two_kids_one_grandkid() {
+        // root -> A, B; A -> C
+        let ch = children_map(&[(1, 2), (1, 3), (2, 4)]);
+        let got = collect_descendants(1, &ch);
+        assert_eq!(got, HashSet::from([1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn descendants_cycle_terminates() {
+        // A -> B -> A (cycle)
+        let ch = children_map(&[(10, 20), (20, 10)]);
+        let got = collect_descendants(10, &ch);
+        assert_eq!(got, HashSet::from([10, 20]));
+    }
+
+    #[test]
+    fn descendants_root_absent_returns_root() {
+        let ch: HashMap<u32, Vec<u32>> = HashMap::new();
+        let got = collect_descendants(42, &ch);
+        assert_eq!(got, HashSet::from([42]));
+    }
+
+    #[test]
+    fn descendants_diamond_deduped() {
+        // A -> B, A -> C, B -> D, C -> D
+        let ch = children_map(&[(1, 2), (1, 3), (2, 4), (3, 4)]);
+        let got = collect_descendants(1, &ch);
+        assert_eq!(got, HashSet::from([1, 2, 3, 4]));
+    }
+
+    // ---- take_chunk ----
+
+    #[test]
+    fn take_chunk_len_lte_max_returns_all_empties_buf() {
+        let mut buf = vec![1u8, 2, 3];
+        let chunk = take_chunk(&mut buf, 10);
+        assert_eq!(chunk, vec![1, 2, 3]);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn take_chunk_len_gt_max_returns_max_remainder_kept() {
+        let mut buf = vec![1u8, 2, 3, 4, 5];
+        let chunk = take_chunk(&mut buf, 3);
+        assert_eq!(chunk, vec![1, 2, 3]);
+        assert_eq!(buf, vec![4, 5]);
+    }
+
+    #[test]
+    fn take_chunk_empty_buf_returns_empty() {
+        let mut buf: Vec<u8> = vec![];
+        let chunk = take_chunk(&mut buf, 10);
+        assert!(chunk.is_empty());
+        assert!(buf.is_empty());
+    }
 }

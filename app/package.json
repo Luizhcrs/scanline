@@ -12,7 +12,8 @@
     "build:cli": "go -C ../cli build -o ../app/src-tauri/scanline.exe .",
     "preview": "vite preview",
     "tauri": "tauri",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -27,7 +28,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "jsdom": "^29.1.1",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

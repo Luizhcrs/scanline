@@ -6,6 +6,20 @@ import (
 	"os"
 )
 
+// parseBrowserArgs splits rest into the --out value and the positional args.
+// If --out appears without a following value token it is left as a positional.
+func parseBrowserArgs(rest []string) (out string, pos []string) {
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == "--out" && i+1 < len(rest) {
+			out = rest[i+1]
+			i++
+			continue
+		}
+		pos = append(pos, rest[i])
+	}
+	return out, pos
+}
+
 // runBrowser drives the scriptable browser API. The verb's positional args are
 // passed through as an array; the frontend interprets them per verb.
 //
@@ -43,16 +57,7 @@ func runBrowser(args []string) {
 	verb := rest[0]
 	rest = rest[1:]
 
-	out := ""
-	pos := []string{}
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == "--out" && i+1 < len(rest) {
-			out = rest[i+1]
-			i++
-			continue
-		}
-		pos = append(pos, rest[i])
-	}
+	out, pos := parseBrowserArgs(rest)
 
 	m := map[string]any{"verb": verb, "args": pos}
 	if surface != nil {

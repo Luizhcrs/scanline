@@ -17,10 +17,9 @@ import (
 // option (Allow=0, Deny=1, …) so `scanline ask ... && <proceed>` gates on the
 // first option while richer callers branch on $?. A dismissed/timed-out card
 // prints an empty line and exits 64, distinguishable from a real choice.
-func runAsk(args []string) {
-	title := ""
-	options := []string{}
-	body := []string{}
+// parseAskArgs parses the args for `scanline ask`. Returns the title, option
+// list (defaulting to Allow/Deny), and the remaining body tokens.
+func parseAskArgs(args []string) (title string, options, body []string) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--title":
@@ -44,6 +43,22 @@ func runAsk(args []string) {
 	if len(options) == 0 {
 		options = []string{"Allow", "Deny"}
 	}
+	return title, options, body
+}
+
+// decisionIndex returns the 0-based index of decision in options, or -1 if not
+// found (card dismissed or timed out).
+func decisionIndex(options []string, decision string) int {
+	for i, o := range options {
+		if o == decision {
+			return i
+		}
+	}
+	return -1
+}
+
+func runAsk(args []string) {
+	title, options, body := parseAskArgs(args)
 
 	m := map[string]any{
 		"title":   title,
@@ -64,13 +79,7 @@ func runAsk(args []string) {
 		decision, _ = r["decision"].(string)
 	}
 	fmt.Println(decision)
-	idx := -1
-	for i, o := range options {
-		if o == decision {
-			idx = i
-			break
-		}
-	}
+	idx := decisionIndex(options, decision)
 	if idx < 0 {
 		// Empty/unknown decision: card dismissed or the call timed out. Make
 		// it distinguishable from a real option choice (esp. a real "Deny").
