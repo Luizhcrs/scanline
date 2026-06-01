@@ -718,6 +718,9 @@ class App {
   /** Refresh the ACTIVE workspace's focused-surface cwd -> git branch/dirty/PR +
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private metaBusy = false;
+  /** Context (workspace+cwd) of the last fetch — gates ONLY the loading line so
+   *  the animation shows when you switch pane/dir, not on every 4s poll. */
+  private metaLoadingSig = "";
   private async refreshMeta(): Promise<void> {
     if (document.hidden) return; // minimized: don't spawn git/gh/netstat
     if (this.metaBusy) return; // previous poll still in flight (hung git/gh) — don't pile up
@@ -726,11 +729,15 @@ class App {
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
-    // No sig-based suppression: the timed poll re-fetches git branch/dirty/PR
-    // each tick so in-place changes show. The JSON.stringify diff below prevents
-    // re-render flicker; metaBusy prevents pile-up on a hung git/gh.
+    // The timed poll re-fetches git branch/dirty/PR each tick so in-place changes
+    // show (no fetch suppression; the JSON diff below prevents re-render flicker).
+    // But the loading line only animates when the CONTEXT changes (new focused
+    // pane / cwd) — not every tick — which is what the user asked for.
+    const sig = `${w.id}|${cwd}`;
+    const showLoading = sig !== this.metaLoadingSig;
+    this.metaLoadingSig = sig;
     this.metaBusy = true;
-    this.setMetaLoading(true); // accent progress line while refreshing
+    if (showLoading) this.setMetaLoading(true);
     try {
       const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
         "repo_info",
@@ -753,7 +760,7 @@ class App {
       /* git/gh not available or no repo */
     } finally {
       this.metaBusy = false;
-      this.setMetaLoading(false);
+      if (showLoading) this.setMetaLoading(false);
     }
   }
 

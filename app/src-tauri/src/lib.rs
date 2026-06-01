@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -166,6 +166,49 @@ impl Default for FrontendReady {
             notify: tokio::sync::Notify::new(),
         }
     }
+}
+
+/// Epoch-millis of the last time a closure dispatched to the main (event-loop)
+/// thread actually ran. An independent monitor thread compares it to wall-clock
+/// to catch an Application Hang LIVE in scanline.log — the prior hangs left no
+/// trace because the freeze is on the native message pump, not a Rust panic.
+static LAST_MAIN_TICK: AtomicU64 = AtomicU64::new(0);
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Heartbeat (stamps LAST_MAIN_TICK from the event loop) + an independent std
+/// monitor thread that logs when the gap grows past ~3s. Because the monitor is
+/// a plain thread it keeps logging THROUGH a freeze, so the log shows when the
+/// UI thread stalled and for how long; correlate with the last `mt`/`pty` line
+/// to find the blocking operation. If NO stall is logged during a visible
+/// "Not Responding", the freeze is the WebView2 renderer/JS side, not this thread.
+fn start_hang_watch(app: AppHandle) {
+    LAST_MAIN_TICK.store(now_millis(), Ordering::Relaxed);
+    let hb = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        let _ = hb.run_on_main_thread(|| {
+            LAST_MAIN_TICK.store(now_millis(), Ordering::Relaxed);
+        });
+    });
+    std::thread::spawn(|| {
+        let mut warned = 0u64;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            let now = now_millis();
+            let last = LAST_MAIN_TICK.load(Ordering::Relaxed);
+            let gap = now.saturating_sub(last);
+            if last != 0 && gap > 3000 && now.saturating_sub(warned) > 2000 {
+                warned = now;
+                log_warn!("stall", "main/UI thread unresponsive for {}ms", gap);
+            }
+        }
+    });
 }
 
 /// Spawn a new ConPTY running the user's shell. The frontend supplies the pty
@@ -925,6 +968,7 @@ async fn browser_open(
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app2 = app.clone();
     app.run_on_main_thread(move || {
+        log_info!("mt", "browser_open enter pane={}", id);
         if let Some(old) = old {
             let _ = old.close();
         }
@@ -936,11 +980,13 @@ async fn browser_open(
             // seconds — that CDP call ran on the main thread and could freeze the
             // window's message pump (the Application Hang).
             let nav_app = app2.clone();
-            // Dedup: a heavy page (SPA, redirects, sub-frame loads) fires
-            // on_navigation many times — and this callback runs on the main
-            // thread, so an un-deduped emit per hit floods the message pump.
-            // Only emit when the URL actually changes.
+            // This callback runs on the MAIN thread. A heavy page (SPA, redirects,
+            // sub-frame loads) fires it many times, so an un-throttled emit per hit
+            // floods the message pump. Guard three ways: skip a stale predecessor
+            // webview (epoch), skip an unchanged URL (dedup), and rate-limit to one
+            // emit per 150ms per pane (a fast-changing SPA URL bar is cosmetic).
             let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let last_emit = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
             let builder = WebviewBuilder::new(format!("browser-{id}"), WebviewUrl::External(parsed))
                 .on_navigation(move |u| {
                     // Generation guard: skip emit if a newer epoch exists for this id,
@@ -962,8 +1008,13 @@ async fn browser_open(
                     let s = u.to_string();
                     let mut last = last_url.lock().unwrap_or_else(|e| e.into_inner());
                     if *last != s {
-                        *last = s.clone();
-                        let _ = nav_app.emit(&format!("browser://{id}/url"), s);
+                        let now = now_millis();
+                        let prev = last_emit.load(Ordering::Relaxed);
+                        if now.saturating_sub(prev) >= 150 {
+                            *last = s.clone();
+                            last_emit.store(now, Ordering::Relaxed);
+                            let _ = nav_app.emit(&format!("browser://{id}/url"), s);
+                        }
                     }
                     true
                 });
@@ -1042,6 +1093,7 @@ fn browser_navigate(
     let v = lock_views(&browsers).get(&id).cloned();
     if let Some(v) = v {
         let _ = app.run_on_main_thread(move || {
+            log_info!("mt", "browser_navigate enter pane={}", id);
             let _ = v.navigate(parsed);
         });
     }
@@ -1154,6 +1206,7 @@ async fn cdp_call(
 
     webview
         .with_webview(move |platform| {
+            log_info!("mt", "browser_cdp enter method={}", method);
             let work = (|| -> windows::core::Result<()> {
                 let controller = platform.controller();
                 let core = unsafe { controller.CoreWebView2()? };
@@ -1605,6 +1658,7 @@ pub fn run() {
         .manage(FrontendReady::default())
         .setup(|app| {
             log_info!("app", "scanline started v{} pid={}", env!("CARGO_PKG_VERSION"), std::process::id());
+            start_hang_watch(app.handle().clone());
             start_control_server(app.handle().clone());
             #[cfg(windows)]
             {
