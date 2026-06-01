@@ -64,17 +64,7 @@ export class PaneContainer implements PaneLike {
    *  their grid positions. Browsers are hidden during the drag (by the App) so
    *  the drop fires even over a native browser webview. */
   private installPaneDrag(): void {
-    this.strip.draggable = true;
-    this.strip.addEventListener("dragstart", (e) => {
-      // A tab starting its own reorder drag handles itself; ignore here.
-      if ((e.target as HTMLElement).closest(".surface-tab")) return;
-      e.dataTransfer?.setData("scanline/pane", String(this.paneId));
-      this.onPaneDragStart?.();
-    });
-    this.strip.addEventListener("dragend", () => {
-      this.el.classList.remove("drop-target");
-      this.onPaneDragEnd?.();
-    });
+    // Drop side (any pane is a target). The drag side is the grip in renderStrip.
     this.el.addEventListener("dragover", (e) => {
       if (!e.dataTransfer?.types.includes("scanline/pane")) return;
       e.preventDefault();
@@ -310,7 +300,21 @@ export class PaneContainer implements PaneLike {
     add.textContent = "+";
     add.title = "New terminal tab (Ctrl+T)";
     add.onclick = () => this.newTerminalTab();
-    this.strip.replaceChildren(...tabs, add);
+    // Drag handle: grab this to reposition the whole pane (swap with the pane
+    // you drop on). Distinct from tab reorder (which drags the tab itself).
+    const grip = document.createElement("div");
+    grip.className = "pane-grip";
+    grip.title = "Drag to move this pane";
+    grip.draggable = true;
+    grip.ondragstart = (e) => {
+      e.dataTransfer?.setData("scanline/pane", String(this.paneId));
+      this.onPaneDragStart?.();
+    };
+    grip.ondragend = () => {
+      this.el.classList.remove("drop-target");
+      this.onPaneDragEnd?.();
+    };
+    this.strip.replaceChildren(grip, ...tabs, add);
   }
 
   /** Start inline rename of the active tab (context menu / shortcut). */

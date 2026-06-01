@@ -649,7 +649,6 @@ class App {
    *  ports. Only the active one (hidden workspaces don't spawn git/gh every tick). */
   private metaBusy = false;
   private lastMetaSig = "";
-  private lastMetaAt = 0;
   private async refreshMeta(): Promise<void> {
     if (document.hidden) return; // minimized: don't spawn git/gh/netstat
     if (this.metaBusy) return; // previous poll still in flight (hung git/gh) — don't pile up
@@ -658,15 +657,12 @@ class App {
     const fs = w.layout.focusedSurface;
     const cwd = fs.cwd ?? "";
     if (!cwd) return;
-    // Only spawn git/gh/netstat when the relevant state actually changed
-    // (workspace / focused pane / cwd), or as a slow 30s heartbeat to catch
-    // external drift (a commit, a new listening port). Otherwise skip — no
-    // subprocess, no flicker. This stops the blind 4s firing.
+    // ONLY when the relevant state actually changed (workspace / focused pane /
+    // cwd). No timed heartbeat — the indicator must never appear on its own
+    // without a reason. Unchanged => skip entirely (no subprocess, no flicker).
     const sig = `${w.id}|${fs.paneId}|${cwd}`;
-    const now = Date.now();
-    if (sig === this.lastMetaSig && now - this.lastMetaAt < 30000) return;
+    if (sig === this.lastMetaSig) return;
     this.lastMetaSig = sig;
-    this.lastMetaAt = now;
     this.metaBusy = true;
     this.setMetaLoading(true); // green progress line while refreshing
     try {

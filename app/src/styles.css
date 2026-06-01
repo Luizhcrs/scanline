@@ -81,10 +81,12 @@ body,
 }
 
 .ws-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px;
+  /* extra bottom room so the loading line sits below the meta text, not over it */
+  padding: 6px 8px 10px;
   border-radius: 6px;
   color: #8a8f99;
   font: 12px/1.2 var(--ui-font);
@@ -102,10 +104,6 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* Thin running line under a workspace row while its git/ports metadata loads. */
-.ws-row {
-  position: relative;
 }
 /* Inset track inside the card; a green runner sweeps across while fetching. */
 .ws-loading {
@@ -146,7 +144,6 @@ body,
 .ws-row.active {
   background: #11151f;
   color: #c5c8c6;
-  border-left: 2px solid var(--focus);
 }
 .ws-label {
   flex: 1 1 auto;
@@ -329,6 +326,26 @@ body,
   background: #c0392b;
   color: #fff;
 }
+/* Pane move handle (drag to reposition the pane). */
+.pane-grip {
+  flex: 0 0 14px;
+  align-self: center;
+  height: 16px;
+  margin: 0 2px;
+  cursor: grab;
+  border-radius: 3px;
+  background-image: radial-gradient(circle, #5a6172 1.2px, transparent 1.3px);
+  background-size: 5px 5px;
+  background-position: center;
+  opacity: 0.55;
+}
+.pane-grip:hover {
+  opacity: 1;
+  background-color: #1c2230;
+}
+.pane-grip:active {
+  cursor: grabbing;
+}
 .surface-tab-add {
   background: none;
   border: none;
@@ -348,7 +365,9 @@ body,
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 4px 6px;
+  /* No bottom padding: xterm fits whole rows, so any bottom padding becomes a
+     visible black strip between the last row and the pane edge. */
+  padding: 3px 2px 0 4px;
   border: 1px solid transparent;
   background: var(--bg);
 }
