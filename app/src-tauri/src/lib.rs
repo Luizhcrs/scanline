@@ -356,6 +356,56 @@ fn load_session() -> Result<Option<String>, String> {
     }
 }
 
+/// Path of the user config: %APPDATA%\scanline\scanline.json.
+fn config_path() -> Option<std::path::PathBuf> {
+    let base = std::env::var("APPDATA").ok()?;
+    Some(std::path::Path::new(&base).join("scanline").join("scanline.json"))
+}
+
+const DEFAULT_CONFIG: &str = r##"{
+  // Scanline config (JSONC: // and /* */ comments allowed).
+  // Edit and save; changes apply on window focus or `scanline config reload`.
+  "terminal": {
+    "fontFamily": "Consolas, 'Cascadia Mono', monospace",
+    "fontSize": 14,
+    "scrollback": 100000,
+    "theme": { "background": "#0d1017", "foreground": "#c5c8c6", "cursor": "#5ff967" }
+  },
+  "ui": {
+    // Interface font (sidebar, tabs, menus). Not the terminal.
+    "fontFamily": "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+  }
+}
+"##;
+
+/// Load scanline.json, or null if it does not exist yet.
+#[tauri::command]
+fn load_config() -> Result<Option<String>, String> {
+    let path = config_path().ok_or("no APPDATA")?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Open scanline.json in Notepad, writing a commented default first if missing.
+#[tauri::command]
+fn edit_config() -> Result<(), String> {
+    let path = config_path().ok_or("no APPDATA")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    if !path.exists() {
+        std::fs::write(&path, DEFAULT_CONFIG).map_err(|e| e.to_string())?;
+    }
+    std::process::Command::new("notepad.exe")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// The pid set rooted at `root` (process + all descendants) via a Toolhelp snapshot.
 #[cfg(windows)]
 fn descendant_pids(root: u32) -> std::collections::HashSet<u32> {
@@ -947,7 +997,9 @@ pub fn run() {
             pane_ports,
             grep_dir,
             save_session,
-            load_session
+            load_session,
+            load_config,
+            edit_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

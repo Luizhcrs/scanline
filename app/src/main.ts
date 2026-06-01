@@ -9,6 +9,8 @@ import { browserDispatch } from "./browserApi";
 import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
+import { loadConfig, config } from "./config";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -105,6 +107,8 @@ class App {
   private active = 0;
   /** Last JSON written by the autosave loop (skip redundant disk writes). */
   private lastSaved = "";
+  /** Last applied config JSON (skip reapply when an edit didn't change it). */
+  private lastConfigJson = "";
   private nextWsId = 1;
   private sidebarVisible = true;
   private notifs: NotificationStore;
@@ -139,6 +143,8 @@ class App {
     window.addEventListener("beforeunload", () => {
       void invoke("save_session", { json: JSON.stringify(this.serializeSession()) });
     });
+    // Reapply scanline.json after an edit (e.g. returning from Notepad).
+    window.addEventListener("focus", () => void this.reloadConfig());
     // Poll per-workspace sidebar metadata (cwd / git branch / ports).
     setInterval(() => void this.refreshMeta(), 4000);
 
@@ -166,6 +172,9 @@ class App {
   // ---- session restore ----
   /** Restore the prior session if present, else open one fresh workspace. */
   private async boot(): Promise<void> {
+    // Load config first so the first panes pick up the configured font/theme.
+    await loadConfig();
+    this.lastConfigJson = JSON.stringify(config());
     let restored = false;
     try {
       const raw = await invoke<string | null>("load_session");
@@ -215,6 +224,32 @@ class App {
         void invoke("save_session", { json });
       }
     }, 8000);
+  }
+
+  private fullscreen = false;
+  private async toggleFullscreen(): Promise<void> {
+    this.fullscreen = !this.fullscreen;
+    try {
+      await getCurrentWindow().setFullscreen(this.fullscreen);
+    } catch (e) {
+      console.error("fullscreen", e);
+    }
+  }
+
+  /** Re-read scanline.json and apply it live (UI font + every terminal's
+   *  font/theme). No-op if the file is unchanged since last applied. */
+  async reloadConfig(): Promise<void> {
+    await loadConfig();
+    const j = JSON.stringify(config());
+    if (j === this.lastConfigJson) return;
+    this.lastConfigJson = j;
+    for (const w of this.workspaces) {
+      for (const c of w.layout.panes()) {
+        for (const s of c.allSurfaces ?? [c]) {
+          if (s.kind === "terminal") (s as Pane).applyConfig();
+        }
+      }
+    }
   }
 
   // ---- context menu ----
@@ -703,6 +738,15 @@ class App {
       layout.focusedPane.selectSurface?.(n === 9 ? 999 : n - 1);
       return true;
     }
+    // Settings + window
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === ",") {
+      void invoke("edit_config");
+      return true;
+    }
+    if (key === "f11") {
+      void this.toggleFullscreen();
+      return true;
+    }
     // Notifications
     if (e.altKey && e.shiftKey && key === "n") {
       this.notifs.togglePanel();
@@ -970,6 +1014,15 @@ class App {
       case "ui.findInDir":
         this.openFindInDir();
         return { ok: true };
+      case "ui.fullscreen":
+        await this.toggleFullscreen();
+        return { ok: true };
+      case "config.edit":
+        await invoke("edit_config");
+        return { ok: true };
+      case "config.reload":
+        await this.reloadConfig();
+        return { ok: true };
       case "system.ping":
         return { ok: true, result: { pong: true } };
       case "system.identify":
@@ -994,7 +1047,8 @@ const CAPABILITIES = [
   "browser.open", "browser", "notify", "notif.list", "notif.clear", "feed.ask", "grep",
   "workspace.new", "workspace.list", "workspace.current", "workspace.select",
   "workspace.close", "workspace.rename",
-  "ui.palette", "ui.switcher", "ui.find", "ui.findInDir",
+  "ui.palette", "ui.switcher", "ui.find", "ui.findInDir", "ui.fullscreen",
+  "config.edit", "config.reload",
   "system.ping", "system.identify", "system.capabilities",
 ];
 

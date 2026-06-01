@@ -6,18 +6,11 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { SearchAddon } from "@xterm/addon-search";
 import { type PaneLike, nextPaneId } from "./types";
-
-const DEFAULT_FONT_SIZE = 14;
+import { config } from "./config";
 
 /** Frontend-allocated pty ids. Allocated before spawn so per-pty event
  *  listeners can be registered first (see Pane.mount). */
 let nextPtyId = 0;
-
-const THEME = {
-  background: "#0d1017",
-  foreground: "#c5c8c6",
-  cursor: "#5ff967",
-};
 
 /**
  * A single terminal pane: an xterm.js terminal bound to a backend ConPTY.
@@ -105,13 +98,14 @@ export class Pane implements PaneLike {
     this.el.className = "pane";
     this.el.tabIndex = -1;
 
+    const t = config().terminal;
     this.term = new Terminal({
-      fontFamily: "Cascadia Code, Consolas, monospace",
-      fontSize: DEFAULT_FONT_SIZE,
+      fontFamily: t.fontFamily,
+      fontSize: t.fontSize,
       cursorBlink: true,
-      theme: THEME,
+      theme: t.theme,
       allowProposedApi: true,
-      scrollback: 100000,
+      scrollback: t.scrollback,
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
@@ -201,11 +195,21 @@ export class Pane implements PaneLike {
     this.term.clear();
   }
 
-  /** delta of 0 resets to default; otherwise add to the current size. */
+  /** delta of 0 resets to the configured size; otherwise add to the current. */
   adjustFontSize(delta: number): void {
-    const cur = this.term.options.fontSize ?? DEFAULT_FONT_SIZE;
-    this.term.options.fontSize =
-      delta === 0 ? DEFAULT_FONT_SIZE : Math.max(6, Math.min(40, cur + delta));
+    const base = config().terminal.fontSize;
+    const cur = this.term.options.fontSize ?? base;
+    this.term.options.fontSize = delta === 0 ? base : Math.max(6, Math.min(40, cur + delta));
+    this.safeFit();
+    this.refit();
+  }
+
+  /** Re-apply the live config (font/theme) to this terminal (config reload). */
+  applyConfig(): void {
+    const t = config().terminal;
+    this.term.options.fontFamily = t.fontFamily;
+    this.term.options.fontSize = t.fontSize;
+    this.term.options.theme = t.theme;
     this.safeFit();
     this.refit();
   }

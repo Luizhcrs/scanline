@@ -170,6 +170,7 @@ export class BrowserPane implements PaneLike {
           // Force the next refit to re-apply bounds: a post-create set_position/
           // set_size is the composition nudge that makes WebView2 paint.
           this.lastRect = { x: -1, y: -1, w: -1, h: -1 };
+          this.startUrlPoll();
         })
         .catch((err) => {
           this.creating = false;
@@ -192,10 +193,40 @@ export class BrowserPane implements PaneLike {
 
   /** Hide/show the native webview when the surface tab (de)activates. */
   setVisible(visible: boolean): void {
+    this.isVisible = visible;
     if (this.created) {
       invoke("browser_visible", { id: this.paneId, visible }).catch(() => {});
     }
     if (visible) requestAnimationFrame(() => this.refit());
+  }
+
+  // ---- URL tracking ----
+  // The native webview navigates on its own (links, redirects, JS). Our bridge
+  // is request/reply (no CDP event stream wired through), so poll location.href
+  // while visible and reflect it into the address bar.
+  private isVisible = true;
+  private urlPoll?: ReturnType<typeof setInterval>;
+  private startUrlPoll(): void {
+    if (this.urlPoll) return;
+    this.urlPoll = setInterval(() => void this.syncUrl(), 800);
+  }
+  private async syncUrl(): Promise<void> {
+    if (!this.created || this.disposed || !this.isVisible) return;
+    try {
+      const raw = await invoke<string>("browser_cdp", {
+        id: this.paneId,
+        method: "Runtime.evaluate",
+        params: JSON.stringify({ expression: "location.href", returnByValue: true }),
+      });
+      const href = JSON.parse(raw)?.result?.value;
+      if (typeof href === "string" && href && href !== this.pendingUrl) {
+        this.pendingUrl = href;
+        // Don't overwrite the address bar while the user is editing it.
+        if (document.activeElement !== this.urlInput) this.urlInput.value = href;
+      }
+    } catch {
+      /* page mid-navigation / not ready — try again next tick */
+    }
   }
 
   focus(): void {
@@ -211,6 +242,7 @@ export class BrowserPane implements PaneLike {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.urlPoll) clearInterval(this.urlPoll);
     if (this.created) {
       await invoke("browser_close", { id: this.paneId }).catch(() => {});
     }

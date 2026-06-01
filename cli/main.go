@@ -126,6 +126,8 @@ func usage() {
   scanline status [--surface N] <running|waiting|idle|error>  set pane status dot
   scanline hooks <agent> <event>                     agent hook dispatch (stdin JSON)
   scanline hooks setup [--project]                   install Claude Code hooks
+  scanline config [edit|reload]                      open scanline.json / reload it live
+  scanline fullscreen                                toggle fullscreen (F11)
   scanline ask [--title T] [--options a,b,c] <q...>  blocking approval card; prints choice
   scanline claude-teams [args...]                    launch Claude in teammate mode
   scanline ping                                      health check
@@ -301,6 +303,18 @@ func main() {
 		send("surface.status", m)
 	case "hooks":
 		runHooks(args[1:])
+	case "config":
+		sub := "edit"
+		if len(args) >= 2 {
+			sub = args[1]
+		}
+		if sub == "reload" {
+			send("config.reload", nil)
+		} else {
+			send("config.edit", nil)
+		}
+	case "fullscreen":
+		send("ui.fullscreen", nil)
 	case "ask":
 		runAsk(args[1:])
 	case "claude-teams":
