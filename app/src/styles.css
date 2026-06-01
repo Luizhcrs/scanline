@@ -51,6 +51,11 @@ body,
   overflow: hidden;
   background: var(--bg);
 }
+/* Maximized: pull content up off the ~7px the window overhangs under the
+   taskbar, so the bottom pane border isn't hidden behind it. */
+body.win-max #app {
+  height: calc(100% - 8px);
+}
 
 /* App shell: vertical-tabs sidebar + content. */
 #app {
