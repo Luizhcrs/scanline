@@ -13,6 +13,12 @@ function toUrl(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(s)}`;
 }
 
+// Serialise all browser_open calls: creating a WebView2 child webview is a
+// main-thread-synchronous operation (add_child). Concurrent calls pile onto the
+// Win32 message pump and cause an Application Hang. Chain each open so at most
+// one add_child is in-flight at a time.
+let _browserOpenQueue: Promise<void> = Promise.resolve();
+
 /**
  * A browser pane backed by a native Tauri child webview (real WebView2), which
  * ignores X-Frame-Options so any site loads (google, github, …).
@@ -192,31 +198,29 @@ export class BrowserPane implements PaneLike {
       // Capture the URL we're opening so we can detect a navigate() that
       // arrived while the open was in flight and flush it after creation.
       const openedUrl = this.pendingUrl;
-      invoke("browser_open", { id: this.paneId, url: openedUrl, ...next })
-        .then(() => {
-          this.created = true;
-          this.creating = false;
-          // Disposed while the open was in flight? dispose() skipped
-          // browser_close (created was still false), so close now and don't
-          // start the poll — otherwise the native webview + 800ms interval leak.
-          if (this.disposed) {
-            void invoke("browser_close", { id: this.paneId }).catch(() => {});
-            return;
-          }
-          // Flush any navigate() that landed during the creating window: the
-          // webview was opened to openedUrl but pendingUrl may now differ.
-          if (this.pendingUrl !== openedUrl) {
-            invoke("browser_navigate", { id: this.paneId, url: this.pendingUrl }).catch(() => {});
-          }
-          // Re-apply once the view exists (the open rect may already be stale).
-          this.lastRect = null;
-          this.refit();
-          this.startUrlListener();
-        })
-        .catch((err) => {
-          this.creating = false;
-          console.error("browser_open", err);
-        });
+      // Chain onto the serial queue so concurrent restores never pile up on the
+      // Win32 message pump (add_child is main-thread-synchronous in Rust).
+      _browserOpenQueue = _browserOpenQueue.then(() =>
+        invoke("browser_open", { id: this.paneId, url: openedUrl, ...next })
+          .then(() => {
+            this.created = true;
+            this.creating = false;
+            if (this.disposed) {
+              void invoke("browser_close", { id: this.paneId }).catch(() => {});
+              return;
+            }
+            if (this.pendingUrl !== openedUrl) {
+              invoke("browser_navigate", { id: this.paneId, url: this.pendingUrl }).catch(() => {});
+            }
+            this.lastRect = null;
+            this.refit();
+            this.startUrlListener();
+          })
+          .catch((err) => {
+            this.creating = false;
+            console.error("browser_open", err);
+          }),
+      );
       return;
     }
 

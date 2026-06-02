@@ -15,6 +15,7 @@ import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdateOnLaunch } from "./updater";
+import { nextPaneId } from "./types";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -46,6 +47,25 @@ const paneFromSpec = (s: SurfaceSpec): PaneLike => {
   return p;
 };
 
+/** Inert placeholder used for non-active workspaces during boot. Holds a grid
+ *  slot without opening an xterm or spawning a PTY. Replaced by loadTree when
+ *  the workspace is first activated. */
+class PlaceholderPane implements PaneLike {
+  readonly paneId = nextPaneId();
+  readonly kind = "terminal" as const;
+  readonly el: HTMLElement;
+  keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+  constructor() {
+    this.el = document.createElement("div");
+    this.el.className = "pane";
+  }
+  mount(): void {}
+  focus(): void {}
+  blur(): void {}
+  refit(): void {}
+  dispose(): Promise<void> { return Promise.resolve(); }
+}
+
 /** Recreate a grid leaf (container + its tabs) from serialized surface specs. */
 const leafFromSpecs = (specs: SurfaceSpec[], active: number): PaneLike => {
   const list = specs.length ? specs : [{ kind: "terminal" as const }];
@@ -60,6 +80,8 @@ interface Workspace {
   title: string;
   grid: HTMLElement;
   layout: Layout;
+  /** Tree spec stored for lazy restore (non-active workspaces on boot). */
+  pendingTree?: TreeSpec;
 }
 
 interface ControlCommand {
@@ -256,12 +278,47 @@ class App {
           workspaces?: Array<{ title?: string; tree: TreeSpec }>;
         };
         if (data.workspaces?.length) {
-          for (const w of data.workspaces) {
-            const ws = this.newWorkspace();
-            if (w.title) ws.title = w.title;
-            await ws.layout.loadTree(w.tree, leafFromSpecs);
+          const idx = Math.max(0, Math.min(data.active ?? 0, data.workspaces.length - 1));
+          for (let i = 0; i < data.workspaces.length; i++) {
+            const w = data.workspaces[i];
+            if (i === idx) {
+              // Active workspace: full eager restore with staged mounting.
+              const ws = this.newWorkspace();
+              if (w.title) ws.title = w.title;
+              await ws.layout.loadTree(w.tree, leafFromSpecs);
+            } else {
+              // Non-active workspaces: create a lightweight shell (no PTY, no
+              // xterm) and store the spec for on-demand restore when the user
+              // first switches to it.
+              const grid = document.createElement("div");
+              grid.className = "ws-grid";
+              grid.style.display = "none";
+              this.content.appendChild(grid);
+              const layout = new Layout(grid, new PlaceholderPane());
+              layout.setPaneFactory(newTerminalLeaf);
+              layout.setBrowserFactory((url) => newBrowserLeaf(url));
+              layout.setKeyHandler((e) => this.onKey(e));
+              const ws: Workspace = {
+                id: this.nextWsId++,
+                title: w.title ?? `Workspace ${this.nextWsId - 1}`,
+                grid,
+                layout,
+                pendingTree: w.tree,
+              };
+              layout.setNotifyHandler((pane, t, b) => {
+                const surfaceId = (pane.activeSurface ?? pane).paneId;
+                this.notifs.add(surfaceId, t, b, ws.id);
+              });
+              layout.onFocusChange = (pane) => {
+                const surfaceId = (pane.activeSurface ?? pane).paneId;
+                this.notifs.clearForPane(surfaceId);
+              };
+              layout.onPaneClosed = (paneId) => this.notifs.removePane(paneId);
+              layout.onPaneDragStart = () => layout.setVisible(false);
+              layout.onPaneDragEnd = () => layout.setVisible(!this.overlayActive);
+              this.workspaces.push(ws);
+            }
           }
-          const idx = Math.max(0, Math.min(data.active ?? 0, this.workspaces.length - 1));
           this.selectWorkspace(idx);
           restored = true;
         }
@@ -558,6 +615,13 @@ class App {
 
   selectWorkspace(index: number): void {
     if (index < 0 || index >= this.workspaces.length) return;
+    // Lazy restore: first visit to a non-active workspace that was deferred on boot.
+    const target = this.workspaces[index];
+    if (target.pendingTree) {
+      const tree = target.pendingTree;
+      target.pendingTree = undefined;
+      void target.layout.loadTree(tree, leafFromSpecs).then(() => this.renderSidebar());
+    }
     const prev = this.workspaces[this.active];
     if (prev && prev !== this.workspaces[index]) {
       prev.layout.setVisible(false);

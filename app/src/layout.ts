@@ -190,8 +190,34 @@ export class Layout {
     this.root = build(spec);
     const first = this.firstLeaf(this.root);
     if (first) this.focused = first;
-    this.render();
+
+    // Add the DOM tree structure so elements are measurable before mounting.
+    this.container.replaceChildren(this.renderNode(this.root));
+
+    // Mount terminal panes first, yielding to the event loop between each so the
+    // Win32 message pump stays responsive while N PTY spawns fire. Browser panes
+    // are deferred to after all terminals and self-serialise via the
+    // _browserOpenQueue in browser.ts (add_child is main-thread-synchronous).
+    const panes = this.collectPanes(this.root);
+    for (const p of panes) {
+      if (p.kind === "browser") continue;
+      if (!this.mounted.has(p)) {
+        this.mounted.add(p);
+        p.mount();
+        // Yield: let the event loop drain pending IPC and paint between spawns.
+        await new Promise<void>((r) => setTimeout(r, 0));
+      }
+    }
+    for (const p of panes) {
+      if (p.kind !== "browser") continue;
+      if (!this.mounted.has(p)) {
+        this.mounted.add(p);
+        p.mount();
+      }
+    }
+
     if (first) this.setFocus(first);
+    requestAnimationFrame(() => this.refitAll());
   }
 
   /** All leaf panes (containers) in the grid, in tree order. */
