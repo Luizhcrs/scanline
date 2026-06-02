@@ -1850,6 +1850,16 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // MUST be the first plugin: a second launch hands its args to this
+        // callback (running in the already-live instance) and then exits, so
+        // only one Scanline process ever owns the PTYs / control pipe / window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
