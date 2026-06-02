@@ -1,5 +1,6 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { t } from "./i18n";
 
 /**
  * On-launch update check. Uses the Tauri updater (ed25519-signed artifacts on
@@ -26,11 +27,11 @@ function showPrompt(update: Update): void {
 
   const title = document.createElement("div");
   title.className = "updater-title";
-  title.textContent = `Scanline ${update.version} disponivel`;
+  title.textContent = t("updater.available")(update.version);
 
   const note = document.createElement("div");
   note.className = "updater-note";
-  note.textContent = (update.body ?? "").trim() || "Nova versao pronta para instalar.";
+  note.textContent = (update.body ?? "").trim() || t("updater.defaultNote");
 
   const status = document.createElement("div");
   status.className = "updater-status";
@@ -39,10 +40,10 @@ function showPrompt(update: Update): void {
   row.className = "updater-actions";
   const later = document.createElement("button");
   later.className = "updater-btn";
-  later.textContent = "Depois";
+  later.textContent = t("updater.later");
   const now = document.createElement("button");
   now.className = "updater-btn primary";
-  now.textContent = "Atualizar";
+  now.textContent = t("updater.now");
 
   const close = () => scrim.remove();
   later.onclick = close;
@@ -55,20 +56,20 @@ function showPrompt(update: Update): void {
       await update.downloadAndInstall((e) => {
         if (e.event === "Started") {
           total = e.data.contentLength ?? 0;
-          status.textContent = "Baixando...";
+          status.textContent = t("updater.downloading");
         } else if (e.event === "Progress") {
           got += e.data.chunkLength;
           status.textContent = total
             ? `Baixando ${Math.round((got / total) * 100)}%`
             : `Baixando ${(got / 1048576).toFixed(1)} MB`;
         } else if (e.event === "Finished") {
-          status.textContent = "Instalando...";
+          status.textContent = t("updater.installing");
         }
       });
-      status.textContent = "Reiniciando...";
+      status.textContent = t("updater.restarting");
       await relaunch();
     } catch (err) {
-      status.textContent = `Falha no update: ${err}`;
+      status.textContent = t("updater.failed")(String(err));
       now.disabled = false;
       later.disabled = false;
     }

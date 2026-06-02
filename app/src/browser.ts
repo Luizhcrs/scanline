@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { type PaneLike, nextPaneId } from "./types";
+import { t } from "./i18n";
 
 /** Normalize user input into a URL (add scheme, or web-search bare terms). */
 function toUrl(input: string): string {
@@ -74,18 +75,18 @@ export class BrowserPane implements PaneLike {
       return b;
     };
 
-    const back = mkBtn("‹", "Back", () =>
+    const back = mkBtn("‹", t("browser.back"), () =>
       invoke("browser_back", { id: this.paneId }).catch(() => {}),
     );
-    const fwd = mkBtn("›", "Forward", () =>
+    const fwd = mkBtn("›", t("browser.forward"), () =>
       invoke("browser_forward", { id: this.paneId }).catch(() => {}),
     );
-    const reload = mkBtn("⟳", "Reload", () => this.navigate(this.urlInput.value));
+    const reload = mkBtn("⟳", t("browser.reload"), () => this.navigate(this.urlInput.value));
 
     this.urlInput = document.createElement("input");
     this.urlInput.className = "browser-url";
     this.urlInput.spellcheck = false;
-    this.urlInput.placeholder = "Enter URL or search…";
+    this.urlInput.placeholder = t("browser.url");
     this.urlInput.value = this.pendingUrl;
     this.urlInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -339,7 +340,7 @@ export class BrowserPane implements PaneLike {
     // Kind label
     const kindLabel = document.createElement("div");
     kindLabel.textContent =
-      kind === "beforeunload" ? "Leave page?" : kind.charAt(0).toUpperCase() + kind.slice(1);
+      kind === "beforeunload" ? t("browser.dlgLeaveTitle") : kind.charAt(0).toUpperCase() + kind.slice(1);
     kindLabel.style.cssText = "font-weight:600;font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em";
 
     // Message text
@@ -391,11 +392,11 @@ export class BrowserPane implements PaneLike {
     };
 
     if (kind === "confirm" || kind === "beforeunload" || kind === "prompt") {
-      const cancelLabel = kind === "beforeunload" ? "Stay" : "Cancel";
+      const cancelLabel = kind === "beforeunload" ? t("browser.dlgStay") : t("browser.dlgCancel");
       btnRow.append(mkBtn(cancelLabel, false, () => reply(false)));
     }
 
-    const okLabel = kind === "beforeunload" ? "Leave" : "OK";
+    const okLabel = kind === "beforeunload" ? t("browser.dlgLeave") : t("browser.dlgOk");
     btnRow.append(
       mkBtn(okLabel, true, () => {
         reply(true, inputEl?.value);

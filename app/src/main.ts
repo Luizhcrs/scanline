@@ -10,7 +10,7 @@ import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
 import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
-import { setLocale, resolveLocale } from "./i18n";
+import { setLocale, resolveLocale, t } from "./i18n";
 import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -333,7 +333,7 @@ class App {
     card.className = "settings-card help-card";
     const title = document.createElement("div");
     title.className = "settings-title";
-    title.textContent = "Keyboard shortcuts";
+    title.textContent = t("help.title");
     card.appendChild(title);
     const b = (name: string) => config().keybindings[name] || DEFAULT_BINDINGS[name];
     const SECTIONS: Array<[string, Array<[string, string]>]> = [
@@ -463,7 +463,7 @@ class App {
         return this.showPaneMenu(e.clientX, e.clientY, container);
       }
       this.menu.show(e.clientX, e.clientY, [
-        { label: "New Workspace", hint: "Ctrl+N", action: () => this.newWorkspace() },
+        { label: t("menu.newWs"), hint: "Ctrl+N", action: () => this.newWorkspace() },
       ]);
     });
   }
@@ -480,26 +480,26 @@ class App {
     const items: MenuItem[] = [];
     const surf = c.activeSurface;
     if (surf?.kind === "terminal") {
-      const t = surf as Pane;
-      if (t.hasSelection()) {
-        items.push({ label: "Copy", hint: "Ctrl+Shift+C", action: () => void t.copySelection() });
+      const pane = surf as Pane;
+      if (pane.hasSelection()) {
+        items.push({ label: t("menu.copy"), hint: "Ctrl+Shift+C", action: () => void pane.copySelection() });
       }
       items.push(
-        { label: "Paste", hint: "Ctrl+Shift+V", action: () => void t.paste() },
-        { label: "Select All", hint: "Ctrl+Shift+A", action: () => t.selectAll() },
+        { label: t("menu.paste"), hint: "Ctrl+Shift+V", action: () => void pane.paste() },
+        { label: t("menu.selectAll"), hint: "Ctrl+Shift+A", action: () => pane.selectAll() },
         { separator: true },
       );
     }
     items.push(
-      { label: "Rename Tab", action: () => c.startRenameActive() },
-      { label: "New Tab", hint: "Ctrl+T", action: () => c.newTerminalTab() },
+      { label: t("menu.renameTab"), action: () => c.startRenameActive() },
+      { label: t("menu.newTab"), hint: "Ctrl+T", action: () => c.newTerminalTab() },
       { separator: true },
-      { label: "Split Right", action: () => L.splitFocused(newTerminalLeaf(), "row") },
-      { label: "Split Down", action: () => L.splitFocused(newTerminalLeaf(), "col") },
-      { label: "Open Browser", action: () => L.splitFocused(newBrowserLeaf()) },
+      { label: t("menu.splitRight"), action: () => L.splitFocused(newTerminalLeaf(), "row") },
+      { label: t("menu.splitDown"), action: () => L.splitFocused(newTerminalLeaf(), "col") },
+      { label: t("menu.openBrowser"), action: () => L.splitFocused(newBrowserLeaf()) },
       { separator: true },
-      { label: "Close Tab", action: () => c.closeActiveSurface() },
-      { label: "Close Pane", danger: true, action: () => void L.closePane(container) },
+      { label: t("menu.closeTab"), action: () => c.closeActiveSurface() },
+      { label: t("menu.closePane"), danger: true, action: () => void L.closePane(container) },
     );
     this.menu.show(x, y, items);
   }
@@ -510,10 +510,10 @@ class App {
     if (!w) return;
     const label = row.querySelector<HTMLElement>(".ws-label");
     const items: MenuItem[] = [
-      { label: "Rename Workspace", action: () => label && this.beginWsRename(w, label) },
-      { label: "New Workspace", hint: "Ctrl+N", action: () => this.newWorkspace() },
+      { label: t("menu.renameWs"), action: () => label && this.beginWsRename(w, label) },
+      { label: t("menu.newWs"), hint: "Ctrl+N", action: () => this.newWorkspace() },
       { separator: true },
-      { label: "Close Workspace", danger: true, action: () => this.closeWorkspace(w.id) },
+      { label: t("menu.closeWs"), danger: true, action: () => this.closeWorkspace(w.id) },
     ];
     this.menu.show(x, y, items);
   }
@@ -643,7 +643,7 @@ class App {
       const label = document.createElement("span");
       label.className = "ws-label";
       label.textContent = w.title;
-      label.title = "Double-click to rename";
+      label.title = t("ws.renameHint");
       label.ondblclick = (e) => {
         e.stopPropagation();
         this.beginWsRename(w, label);
@@ -685,7 +685,7 @@ class App {
     });
     const add = document.createElement("button");
     add.className = "ws-add";
-    add.textContent = "+ Workspace";
+    add.textContent = t("ws.add");
     add.onclick = () => this.newWorkspace();
     this.sidebar.replaceChildren(...rows, add);
   }
@@ -818,32 +818,32 @@ class App {
   private openCommands(): void {
     const L = this.activeLayout;
     const cmds: PaletteItem[] = [
-      { id: "ws.new", label: "New Workspace", hint: "Ctrl+N", run: () => this.newWorkspace() },
-      { id: "ws.next", label: "Next Workspace", run: () => this.nextWorkspace() },
-      { id: "ws.prev", label: "Previous Workspace", run: () => this.prevWorkspace() },
-      { id: "split.right", label: "Split Right", hint: "Alt+Shift+Right", run: () => L.splitWithNew("row") },
-      { id: "split.down", label: "Split Down", hint: "Alt+Shift+Down", run: () => L.splitWithNew("col") },
-      { id: "tab.new", label: "New Terminal Tab", hint: "Ctrl+T", run: () => L.focusedPane.newTerminalTab?.() },
-      { id: "browser", label: "Open Browser", hint: "Alt+Shift+B", run: () => L.splitFocused(newBrowserLeaf()) },
-      { id: "pane.close", label: "Close Pane", hint: "Ctrl+Shift+W", run: () => L.closeFocused() },
-      { id: "zoom", label: "Toggle Zoom", hint: "Alt+Shift+Z", run: () => L.toggleZoom() },
-      { id: "equalize", label: "Equalize Splits", hint: "Alt+Shift+E", run: () => L.equalize() },
+      { id: "ws.new", label: t("cmd.ws.new"), hint: "Ctrl+N", run: () => this.newWorkspace() },
+      { id: "ws.next", label: t("cmd.ws.next"), run: () => this.nextWorkspace() },
+      { id: "ws.prev", label: t("cmd.ws.prev"), run: () => this.prevWorkspace() },
+      { id: "split.right", label: t("cmd.split.right"), hint: "Alt+Shift+Right", run: () => L.splitWithNew("row") },
+      { id: "split.down", label: t("cmd.split.down"), hint: "Alt+Shift+Down", run: () => L.splitWithNew("col") },
+      { id: "tab.new", label: t("cmd.tab.new"), hint: "Ctrl+T", run: () => L.focusedPane.newTerminalTab?.() },
+      { id: "browser", label: t("cmd.browser"), hint: "Alt+Shift+B", run: () => L.splitFocused(newBrowserLeaf()) },
+      { id: "pane.close", label: t("cmd.pane.close"), hint: "Ctrl+Shift+W", run: () => L.closeFocused() },
+      { id: "zoom", label: t("cmd.zoom"), hint: "Alt+Shift+Z", run: () => L.toggleZoom() },
+      { id: "equalize", label: t("cmd.equalize"), hint: "Alt+Shift+E", run: () => L.equalize() },
       {
         id: "clear",
-        label: "Clear Scrollback",
+        label: t("cmd.clear"),
         hint: "Ctrl+Shift+K",
         run: () => {
           const s = L.focusedSurface;
           if (s.kind === "terminal") (s as Pane).clear();
         },
       },
-      { id: "notif", label: "Notifications", hint: "Alt+Shift+N", run: () => this.notifs.togglePanel() },
-      { id: "sidebar", label: "Toggle Sidebar", hint: "Ctrl+B", run: () => this.toggleSidebar() },
-      { id: "find", label: "Find…", hint: "Ctrl+F", run: () => this.openFind() },
-      { id: "help", label: "Keyboard Shortcuts", hint: "Ctrl+/", run: () => this.toggleHelp() },
-      { id: "settings", label: "Settings…", hint: "Ctrl+,", run: () => this.settings.open() },
-      { id: "minimal", label: "Toggle Minimal Mode", hint: "Ctrl+Shift+M", run: () => this.toggleMinimal() },
-      { id: "fullscreen", label: "Toggle Fullscreen", hint: "F11", run: () => void this.toggleFullscreen() },
+      { id: "notif", label: t("cmd.notif"), hint: "Alt+Shift+N", run: () => this.notifs.togglePanel() },
+      { id: "sidebar", label: t("cmd.sidebar"), hint: "Ctrl+B", run: () => this.toggleSidebar() },
+      { id: "find", label: t("cmd.find"), hint: "Ctrl+F", run: () => this.openFind() },
+      { id: "help", label: t("cmd.help"), hint: "Ctrl+/", run: () => this.toggleHelp() },
+      { id: "settings", label: t("cmd.settings"), hint: "Ctrl+,", run: () => this.settings.open() },
+      { id: "minimal", label: t("cmd.minimal"), hint: "Ctrl+Shift+M", run: () => this.toggleMinimal() },
+      { id: "fullscreen", label: t("cmd.fullscreen"), hint: "F11", run: () => void this.toggleFullscreen() },
     ];
     this.palette.open(cmds, "Command…");
   }
