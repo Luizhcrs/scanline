@@ -4,10 +4,16 @@ name: release
 # on every version tag. The published release's latest.json is what running
 # instances check on launch (see tauri.conf.json plugins.updater.endpoints).
 
+# Manual until the updater signing secret (TAURI_SIGNING_PRIVATE_KEY) is set on
+# the repo. Until then releases are built locally and published with gh, and
+# this workflow stays opt-in so a version-tag push does not fire an unsigned
+# build that races the manual release. Re-enable the tag trigger below once the
+# secret exists and createUpdaterArtifacts is turned back on in tauri.conf.json.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - "v*"
 
 jobs:
   release:
