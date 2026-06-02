@@ -973,3 +973,42 @@ body.minimal .surface-tabs {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
+/* Update prompt (on-launch, Tauri updater). */
+.updater-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.updater-card {
+  width: 360px;
+  max-width: 90vw;
+  background: var(--bg-elev);
+  border: var(--bw-hair) solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal);
+  padding: var(--s6);
+  color: var(--text);
+  font: var(--fs-md)/1.45 var(--ui-font);
+}
+.updater-title { font-size: var(--fs-xl); font-weight: 600; margin-bottom: var(--s4); }
+.updater-note { color: var(--text-soft); white-space: pre-wrap; max-height: 30vh; overflow: auto; }
+.updater-status { color: var(--text-dim); font-size: var(--fs-sm); min-height: 16px; margin-top: var(--s4); }
+.updater-actions { display: flex; justify-content: flex-end; gap: var(--s3); margin-top: var(--s5); }
+.updater-btn {
+  padding: var(--s3) var(--s6);
+  border-radius: var(--r-sm);
+  border: var(--bw-hair) solid var(--border-strong);
+  background: var(--border);
+  color: var(--text);
+  cursor: pointer;
+  font: var(--fs-base) var(--ui-font);
+}
+.updater-btn:hover { background: var(--border-strong); }
+.updater-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.updater-btn.primary:hover { background: var(--accent-hover); }
+.updater-btn:disabled { opacity: 0.5; cursor: default; }

@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": ["scanline.exe"],
     "icon": [
       "icons/32x32.png",
@@ -37,5 +38,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Luizhcrs/scanline/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwNjQ5MEIwMTYzRkExMTgKUldRWW9UOFdzSkJra0FnWEdzY1ZSYm1PUThITzFiQ3lLZlViWDhmS2czZDdibkI3UU93enMvcVoK"
+    }
   }
 }

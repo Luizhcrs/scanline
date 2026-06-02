@@ -13,6 +13,7 @@ import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
 import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { checkForUpdateOnLaunch } from "./updater";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
 /** A grid leaf: a container that starts with one terminal and can grow tabs. */
@@ -269,6 +270,8 @@ class App {
     if (!restored) this.newWorkspace();
     this.renderSidebar();
     this.startAutosave();
+    // Non-blocking: offer an update if one is published (silent otherwise).
+    void checkForUpdateOnLaunch();
   }
 
   /** The full app state needed to recreate workspaces + their layouts. */
