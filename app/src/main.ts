@@ -42,7 +42,7 @@ const DEFAULT_BINDINGS: Record<string, string> = {
 /** Recreate a single surface from its restore spec. */
 const paneFromSpec = (s: SurfaceSpec): PaneLike => {
   const p: PaneLike =
-    s.kind === "browser" ? new BrowserPane(s.url) : new Pane(s.command, s.cwd);
+    s.kind === "browser" ? new BrowserPane(s.url) : new Pane(s.command, s.cwd, s.scrollback);
   if (s.title) p.setTitle?.(s.title);
   return p;
 };

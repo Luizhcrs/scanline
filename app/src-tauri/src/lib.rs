@@ -980,6 +980,10 @@ struct BrowserManager {
     /// the in-flight call uses the latest value and the queued duplicate is dropped.
     /// Arc so the map can be cloned into the run_on_main_thread closure.
     nav_pending: Arc<Mutex<HashMap<u32, String>>>,
+    /// Pending bounds update per pane — same last-write-wins dedup as nav_pending.
+    /// Prevents a flood of refitAll() calls from queuing N set_position/set_size
+    /// closures on the main thread simultaneously.
+    bounds_pending: Arc<Mutex<HashMap<u32, (f64, f64, f64, f64)>>>,
 }
 
 impl Default for BrowserManager {
@@ -988,6 +992,7 @@ impl Default for BrowserManager {
             views: Mutex::new(HashMap::new()),
             nav_epochs: Mutex::new(HashMap::new()),
             nav_pending: Arc::new(Mutex::new(HashMap::new())),
+            bounds_pending: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -1237,12 +1242,24 @@ fn browser_bounds(
     h: f64,
 ) -> Result<(), String> {
     let v = lock_views(&browsers).get(&id).cloned();
-    if let Some(v) = v {
-        let _ = app.run_on_main_thread(move || {
-            let _ = v.set_position(LogicalPosition::new(x, y));
-            let _ = v.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)));
-        });
+    let Some(v) = v else { return Ok(()) };
+
+    {
+        let mut pending = browsers.bounds_pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.contains_key(&id) {
+            pending.insert(id, (x, y, w, h));
+            return Ok(());
+        }
+        pending.insert(id, (x, y, w, h));
     }
+
+    let pending_arc = Arc::clone(&browsers.bounds_pending);
+    let _ = app.run_on_main_thread(move || {
+        let rect = pending_arc.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        let Some((x, y, w, h)) = rect else { return };
+        let _ = v.set_position(LogicalPosition::new(x, y));
+        let _ = v.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)));
+    });
     Ok(())
 }
 

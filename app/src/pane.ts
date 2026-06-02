@@ -61,13 +61,27 @@ export class Pane implements PaneLike {
   setTitle(name: string): void {
     this._customTitle = name.trim();
   }
-  /** Restore spec: kind + command + last cwd + rename. */
+  /** Restore spec: kind + command + last cwd + rename + scrollback snapshot. */
   serializeSurface(): import("./types").SurfaceSpec {
+    // Cap scrollback size so session.json doesn't balloon. 50KB covers ~2000 lines
+    // of dense terminal output; beyond that the restore is partial but still useful.
+    const MAX_SCROLLBACK_BYTES = 50 * 1024;
+    let scrollback: string | undefined;
+    if (this.serialize && this.mounted) {
+      try {
+        const raw = this.serialize.serialize();
+        if (raw.length <= MAX_SCROLLBACK_BYTES) scrollback = raw;
+        else scrollback = raw.slice(raw.length - MAX_SCROLLBACK_BYTES);
+      } catch {
+        // serialize can throw if the terminal is in a bad state; skip gracefully.
+      }
+    }
     return {
       kind: "terminal",
       command: this.command || undefined,
       cwd: this._cwd || undefined,
       title: this._customTitle || undefined,
+      scrollback,
     };
   }
   /** Working directory from OSC 7 (sidebar git/ports metadata). */
@@ -97,6 +111,7 @@ export class Pane implements PaneLike {
     private readonly command?: string,
     /** Restore: start the shell here instead of home (if the dir still exists). */
     private readonly initialCwd?: string,
+    private readonly initialScrollback?: string,
   ) {
     this.el = document.createElement("div");
     this.el.className = "pane";
@@ -147,6 +162,12 @@ export class Pane implements PaneLike {
     this.term.open(this.el);
     this.installAddons();
     this.safeFit();
+    // Restore previous scrollback before spawning so the user sees their prior
+    // terminal content immediately. Written as raw VT sequences — the terminal
+    // replays the saved state exactly as it was serialized.
+    if (this.initialScrollback) {
+      this.term.write(this.initialScrollback);
+    }
     void this.spawn(shell);
   }
 

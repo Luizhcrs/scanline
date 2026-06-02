@@ -15,6 +15,8 @@ export interface SurfaceSpec {
   cwd?: string;
   /** User rename, if any. */
   title?: string;
+  /** Serialized xterm scrollback for crash recovery (base64 xterm serialize output). */
+  scrollback?: string;
 }
 
 /** A workspace's layout tree, serialized for session restore. */
