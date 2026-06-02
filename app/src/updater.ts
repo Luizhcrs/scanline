@@ -60,8 +60,8 @@ function showPrompt(update: Update): void {
         } else if (e.event === "Progress") {
           got += e.data.chunkLength;
           status.textContent = total
-            ? `Baixando ${Math.round((got / total) * 100)}%`
-            : `Baixando ${(got / 1048576).toFixed(1)} MB`;
+            ? t("updater.progressPct")(Math.round((got / total) * 100))
+            : t("updater.progressMb")((got / 1048576).toFixed(1));
         } else if (e.event === "Finished") {
           status.textContent = t("updater.installing");
         }
