@@ -56,6 +56,11 @@ func isScanlineCommand(c string) bool {
 			return true
 		}
 	}
+	for _, ev := range agentAgyEvents {
+		if strings.HasSuffix(c, "hooks agy "+ev) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -68,6 +73,8 @@ var hookEvents = []string{
 var geminiHookEvents = []string{"BeforeAgent", "BeforeTool", "AfterAgent", "Notification"}
 var droidHookEvents = []string{"Notification", "Stop", "UserPromptSubmit"}
 var kimiHookEvents = []string{"Notification", "Stop", "UserPromptSubmit"}
+// Antigravity CLI (agy) — no Notification event; all tool/invocation events → running.
+var agentAgyEvents = []string{"PreToolUse", "PostToolUse", "PreInvocation", "PostInvocation", "Stop"}
 
 // runHooks handles `scanline hooks ...`:
 //
@@ -111,6 +118,7 @@ func runHooks(args []string) {
 		"gemini": "Gemini CLI",
 		"droid":  "Droid",
 		"kimi":   "Kimi Code",
+		"agy":    "Antigravity",
 	}
 	displayName := agentDisplayNames[strings.ToLower(agent)]
 	if displayName == "" {
@@ -128,7 +136,8 @@ func runHooks(args []string) {
 		status = "waiting"
 	case "stop", "subagentstop", "afteragent", "after_agent":
 		status = "idle"
-	case "userpromptsubmit", "pretooluse", "posttooluse", "beforeagent", "beforetool", "before_agent", "before_tool":
+	case "userpromptsubmit", "pretooluse", "posttooluse", "beforeagent", "beforetool", "before_agent", "before_tool",
+		"preinvocation", "postinvocation":
 		status = "running"
 	}
 	if status != "" {
@@ -287,6 +296,59 @@ func setupHooks(args []string) {
 			fmt.Fprintf(os.Stderr, "scanline: kimi hooks warning: %v\n", err)
 		}
 	}
+
+	// Antigravity CLI (agy): config lives in ~/.gemini/config/hooks.json.
+	// Detect by checking if `agy` is in PATH or ~/.gemini/config/ exists.
+	agyCfgDir := filepath.Join(profile, ".gemini", "config")
+	if _, err := os.Stat(agyCfgDir); err == nil {
+		if err := setupAntigravityHooks(self); err != nil {
+			fmt.Fprintf(os.Stderr, "scanline: antigravity hooks warning: %v\n", err)
+		}
+	}
+}
+
+// setupAntigravityHooks writes ~/.gemini/config/hooks.json for the Antigravity
+// CLI (agy). The format wraps events inside a named group object — different
+// from Claude Code / Gemini CLI. Events: PreToolUse, PostToolUse,
+// PreInvocation, PostInvocation (→ running) and Stop (→ idle).
+// There is no Notification event in Antigravity CLI.
+func setupAntigravityHooks(self string) error {
+	profile := os.Getenv("USERPROFILE")
+	dir := filepath.Join(profile, ".gemini", "config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "hooks.json")
+
+	root := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("%s is not valid JSON, leaving it untouched (%v)", path, err)
+		}
+	}
+
+	// Strip any prior scanline-owned group.
+	delete(root, "scanline")
+
+	// Build the scanline group with all Antigravity events.
+	group := map[string]any{}
+	for _, event := range agentAgyEvents {
+		cmd := fmt.Sprintf("\"%s\" hooks agy %s", self, event)
+		group[event] = []any{map[string]any{"type": "command", "command": cmd}}
+	}
+	root["scanline"] = group
+
+	out, _ := json.MarshalIndent(root, "", "  ")
+	tmp := path + fmt.Sprintf(".scanline.%d.tmp", os.Getpid())
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	fmt.Printf("installed Antigravity CLI hooks -> %s\n", path)
+	return nil
 }
 
 func setupGeminiHooks(self string) error {
