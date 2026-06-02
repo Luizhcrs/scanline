@@ -66,6 +66,8 @@ export const en = {
 
   // Palette placeholders
   "palette.cmd": "Type a command…",
+  "palette.command": "Command…",
+  "palette.switcher": "Go to workspace / surface…",
   "palette.search": "Search…",
   "palette.find": "Find…",
 
@@ -167,6 +169,8 @@ export const pt: Messages = {
   "ws.renameHint": "Clique duplo para renomear",
 
   "palette.cmd": "Digite um comando…",
+  "palette.command": "Comando…",
+  "palette.switcher": "Ir para workspace / superfície…",
   "palette.search": "Buscar…",
   "palette.find": "Buscar…",
 
@@ -191,8 +195,8 @@ export const pt: Messages = {
   "feed.header": "Solicitações do agente",
   "feed.defaultTitle": "Solicitação do agente",
 
-  "updater.available": (version: string) => `Scanline ${version} disponivel`,
-  "updater.defaultNote": "Nova versao pronta para instalar.",
+  "updater.available": (version: string) => `Scanline ${version} disponível`,
+  "updater.defaultNote": "Nova versão pronta para instalar.",
   "updater.later": "Depois",
   "updater.now": "Atualizar",
   "updater.downloading": "Baixando...",

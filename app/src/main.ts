@@ -845,7 +845,7 @@ class App {
       { id: "minimal", label: t("cmd.minimal"), hint: "Ctrl+Shift+M", run: () => this.toggleMinimal() },
       { id: "fullscreen", label: t("cmd.fullscreen"), hint: "F11", run: () => void this.toggleFullscreen() },
     ];
-    this.palette.open(cmds, "Command…");
+    this.palette.open(cmds, t("palette.command"));
   }
 
   private openSwitcher(): void {
@@ -870,7 +870,7 @@ class App {
         },
       });
     }
-    this.palette.open(items, "Go to workspace / surface…");
+    this.palette.open(items, t("palette.switcher"));
   }
 
   private openFind(): void {
