@@ -16,6 +16,7 @@ export default defineConfig({
       "@tauri-apps/plugin-notification": r("src/__mocks__/tauri-notification.ts"),
       "@tauri-apps/plugin-clipboard-manager": r("src/__mocks__/tauri-clipboard.ts"),
       "@tauri-apps/plugin-opener": r("src/__mocks__/tauri-opener.ts"),
+      "@tauri-apps/plugin-os": r("src/__mocks__/tauri-os.ts"),
       // Stub xterm — requires a real browser canvas.
       "@xterm/xterm": r("src/__mocks__/xterm.ts"),
       "@xterm/addon-fit": r("src/__mocks__/xterm-addon.ts"),
