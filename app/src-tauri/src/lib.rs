@@ -268,6 +268,12 @@ fn pty_spawn(
     command: Option<String>,
     surface_id: Option<u32>,
     cwd: Option<String>,
+    // PTY output streams over a dedicated IPC Channel, NOT a global event. The
+    // event system broadcasts to every webview and runs delivery on the main
+    // (UI) thread; under two busy agents streaming at once that saturated the
+    // message pump and froze the app (Application Hang). A Channel is the
+    // Tauri-recommended high-throughput path: single receiver, direct delivery.
+    on_data: tauri::ipc::Channel<String>,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -360,11 +366,10 @@ fn pty_spawn(
     // IPC bridge:
     //  - reader thread: blocking reads append into a shared buffer and signal.
     //  - flusher thread: BLOCKS on a condvar until there's data (idle ptys cost
-    //    ~0 CPU instead of 125 wakeups/sec), then coalesces an 8ms burst into ONE
-    //    base64 event. base64 (~1.33x) is far smaller and cheaper to parse than
-    //    Tauri's default Vec<u8> -> JSON number-array (~4-6x).
+    //    ~0 CPU instead of 125 wakeups/sec), then coalesces a ~16ms burst into ONE
+    //    base64 message sent over the IPC Channel. base64 (~1.33x) is far smaller
+    //    and cheaper to parse than Tauri's default Vec<u8> -> JSON number-array.
     // The frontend base64-decodes and writes to xterm.
-    let data_event = format!("pty://{id}/data");
     let exit_event = format!("pty://{id}/exit");
     let buffer: Arc<(Mutex<Vec<u8>>, Condvar)> = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
     let done = Arc::new(AtomicBool::new(false));
@@ -458,15 +463,15 @@ fn pty_spawn(
                     break; // empty + done
                 }
             }
-            // 2) Coalesce an ~8ms burst before draining. A redrawing TUI (Claude
+            // 2) Coalesce a ~16ms burst before draining. A redrawing TUI (Claude
             //    Code's status line, progress bars) delivers dozens of tiny ConPTY
-            //    writes per second; emitting each one floods the WebView2 IPC and
-            //    freezes the UI thread (Application Hang / "Not Responding"). One
-            //    event per ~8ms batches them with imperceptible latency.
-            //    Skip when draining a leftover backlog: the comment's claim that
-            //    "the next iteration emits immediately" is now actually true. (bug #206)
+            //    writes per second; sending each one still costs an IPC hop, and
+            //    two busy agents at once saturated the UI thread (Application Hang).
+            //    One message per ~16ms batches them with imperceptible latency.
+            //    Skip when draining a leftover backlog so the rest streams
+            //    immediately without piling on tail latency. (bug #206)
             if !had_leftover {
-                thread::sleep(std::time::Duration::from_millis(8));
+                thread::sleep(std::time::Duration::from_millis(16));
             }
             // 3) Take at most EMIT_MAX; a big burst stays buffered and the next
             //    loop iteration emits the rest immediately (no extra wait).
@@ -491,7 +496,7 @@ fn pty_spawn(
                 break; // stale generation — stop without emitting exit
             }
             let encoded = base64::engine::general_purpose::STANDARD.encode(&chunk);
-            let _ = app2.emit(&data_event, encoded);
+            let _ = on_data.send(encoded);
         }
         // Final generation check before emitting exit.
         let cur_gen = gens_ref
@@ -1848,6 +1853,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
         .manage(BrowserManager::default())
         .manage(ControlPending::default())

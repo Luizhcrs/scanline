@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -232,14 +232,19 @@ export class Pane implements PaneLike {
     // spawn command — so the shell's first prompt can't outrun the listener.
     const id = (this.ptyId = nextPtyId++);
 
-    const dataUn = await listen<string>(`pty://${id}/data`, (e) => {
+    // PTY output streams over a dedicated IPC Channel (not a global event): the
+    // event system delivers on the main/UI thread and broadcasts to all webviews,
+    // which saturated the message pump under two busy agents and hung the app. A
+    // Channel is single-receiver and direct. Backend sends base64 (smaller +
+    // cheaper than a JSON number array).
+    const onData = new Channel<string>();
+    onData.onmessage = (payload) => {
       if (this.disposed) return;
-      // Backend sends base64 (smaller + cheaper than a JSON number array).
-      const bin = atob(e.payload);
+      const bin = atob(payload);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       this.term.write(bytes);
-    });
+    };
     const exitUn = await listen(`pty://${id}/exit`, () => {
       if (this.disposed) return;
       // Disable xterm input immediately so keystrokes typed into the dead
@@ -250,7 +255,7 @@ export class Pane implements PaneLike {
       this.term.write("\r\n[process exited]\r\n");
       this.onExit?.(this);
     });
-    this.unlisteners.push(dataUn, exitUn);
+    this.unlisteners.push(exitUn);
 
     // Wire input -> pty BEFORE spawning. The shell's PSReadLine emits a DSR
     // cursor-position query (ESC[6n) on startup and BLOCKS until the terminal
@@ -284,6 +289,7 @@ export class Pane implements PaneLike {
       command: this.command ?? null,
       surfaceId: this.paneId,
       cwd: this.initialCwd ?? null,
+      onData,
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
