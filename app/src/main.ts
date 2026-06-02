@@ -1048,6 +1048,11 @@ class App {
     // Palette/switcher/find/findInDir/newWorkspace/newTab/settings/minimal/
     // fullscreen are handled by the rebindable-actions table above; only the
     // fixed (non-rebindable) shortcuts remain below.
+    // F12 / Ctrl+Shift+I — open DevTools for the main window.
+    if (key === "f12" || (e.ctrlKey && e.shiftKey && key === "i")) {
+      void invoke("open_devtools");
+      return true;
+    }
     if (e.altKey && e.shiftKey && key === "d") {
       layout.splitWithNew();
       return true;

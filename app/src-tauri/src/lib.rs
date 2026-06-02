@@ -860,6 +860,16 @@ const DEFAULT_CONFIG: &str = r##"{
 }
 "##;
 
+/// Open the main window's DevTools panel (F12 / Ctrl+Shift+I shortcut target).
+/// Available in all builds so the user can inspect console output and debug
+/// layout without needing a dev build.
+#[tauri::command]
+fn open_devtools(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        win.open_devtools();
+    }
+}
+
 /// Load scanline.json, or null if it does not exist yet.
 #[tauri::command]
 fn load_config() -> Result<Option<String>, String> {
@@ -962,6 +972,14 @@ struct BrowserManager {
     /// Per-id epoch counter for on_navigation: bumped when a pane is opened so
     /// a dying predecessor's trailing navigation events are suppressed. (bug #623)
     nav_epochs: Mutex<HashMap<u32, u64>>,
+    /// Per-id in-flight navigate flag: prevents concurrent navigate() calls on the
+    /// same pane from piling onto the main thread. v.navigate() blocks the Win32
+    /// message pump; if the user types a URL while a previous navigation is still
+    /// running on the main thread the second call queues behind it and doubles the
+    /// stall. Last-write-wins: the pending URL is always the most recent one, so
+    /// the in-flight call uses the latest value and the queued duplicate is dropped.
+    /// Arc so the map can be cloned into the run_on_main_thread closure.
+    nav_pending: Arc<Mutex<HashMap<u32, String>>>,
 }
 
 impl Default for BrowserManager {
@@ -969,6 +987,7 @@ impl Default for BrowserManager {
         Self {
             views: Mutex::new(HashMap::new()),
             nav_epochs: Mutex::new(HashMap::new()),
+            nav_pending: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -1228,6 +1247,14 @@ fn browser_bounds(
 }
 
 /// Navigate a browser pane to a new URL.
+///
+/// v.navigate() is synchronous on the Win32 main thread. Concurrent calls for
+/// the same pane (e.g. rapid URL edits) pile up and can stall the message pump
+/// for tens of seconds. Guard with a per-pane pending-URL slot: if a navigate
+/// is already in-flight for this pane, update the slot (last-write-wins) and
+/// return — the running closure will re-navigate to the latest URL when it
+/// finishes, so no navigation is lost but the main thread sees at most one
+/// navigate per pane at a time.
 #[tauri::command]
 fn browser_navigate(
     app: AppHandle,
@@ -1235,14 +1262,28 @@ fn browser_navigate(
     id: u32,
     url: String,
 ) -> Result<(), String> {
-    let parsed = Url::parse(&url).map_err(|e| e.to_string())?;
     let v = lock_views(&browsers).get(&id).cloned();
-    if let Some(v) = v {
-        let _ = app.run_on_main_thread(move || {
-            log_info!("mt", "browser_navigate enter pane={}", id);
-            let _ = v.navigate(parsed);
-        });
+    let Some(v) = v else { return Ok(()) };
+
+    {
+        let mut pending = browsers.nav_pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.contains_key(&id) {
+            // A navigate is already queued. Update to latest URL (last-write-wins)
+            // and skip posting another run_on_main_thread — one in-flight is enough.
+            pending.insert(id, url);
+            return Ok(());
+        }
+        pending.insert(id, url);
     }
+
+    let pending_arc = Arc::clone(&browsers.nav_pending);
+    let _ = app.run_on_main_thread(move || {
+        let raw = pending_arc.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        let Some(raw) = raw else { return };
+        let Ok(target) = Url::parse(&raw) else { return };
+        log_info!("mt", "browser_navigate enter pane={}", id);
+        let _ = v.navigate(target);
+    });
     Ok(())
 }
 
@@ -1907,7 +1948,8 @@ pub fn run() {
             load_session,
             load_config,
             edit_config,
-            save_config
+            save_config,
+            open_devtools
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
