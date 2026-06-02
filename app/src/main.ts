@@ -10,6 +10,7 @@ import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
 import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
+import { setLocale, resolveLocale } from "./i18n";
 import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -243,7 +244,8 @@ class App {
   /** Restore the prior session if present, else open one fresh workspace. */
   private async boot(): Promise<void> {
     // Load config first so the first panes pick up the configured font/theme.
-    await loadConfig();
+    const cfg = await loadConfig();
+    setLocale(await resolveLocale(cfg.ui.language));
     this.lastConfigJson = JSON.stringify(config());
     let restored = false;
     try {
