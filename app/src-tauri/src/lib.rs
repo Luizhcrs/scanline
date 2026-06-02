@@ -1855,6 +1855,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init())
         .manage(PtyManager::default())
         .manage(BrowserManager::default())
         .manage(ControlPending::default())

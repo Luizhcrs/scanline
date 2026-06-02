@@ -4,6 +4,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { pushOverlay, popOverlay } from "./overlay";
+import { t } from "./i18n";
 
 /**
  * Notification store: the "an agent needs you" signal. A notification rings its
@@ -38,10 +39,10 @@ export class NotificationStore {
     const header = document.createElement("div");
     header.className = "notif-panel-header";
     const title = document.createElement("span");
-    title.textContent = "Notifications";
+    title.textContent = t("notif.title");
     const clear = document.createElement("button");
     clear.className = "notif-clear";
-    clear.textContent = "Clear all";
+    clear.textContent = t("notif.clearAll");
     clear.onclick = () => this.clearAll();
     header.append(title, clear);
 
@@ -154,7 +155,7 @@ export class NotificationStore {
     if (this.items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "notif-empty";
-      empty.textContent = "No notifications";
+      empty.textContent = t("notif.empty");
       this.listEl.replaceChildren(empty);
       return;
     }

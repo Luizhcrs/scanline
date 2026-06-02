@@ -12,7 +12,7 @@ export interface ScanlineConfig {
     scrollback: number;
     theme: { background: string; foreground: string; cursor: string };
   };
-  ui: { fontFamily: string; minimal: boolean };
+  ui: { fontFamily: string; minimal: boolean; language: "auto" | "pt" | "en" };
   /** Action -> chord overrides (e.g. {"palette":"ctrl+k"}). Empty = defaults. */
   keybindings: Record<string, string>;
 }
@@ -27,6 +27,7 @@ export const DEFAULTS: ScanlineConfig = {
   ui: {
     fontFamily: '"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif',
     minimal: false,
+    language: "auto",
   },
   keybindings: {},
 };

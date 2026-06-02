@@ -1,5 +1,6 @@
 import { config, type ScanlineConfig } from "./config";
 import { pushOverlay, popOverlay } from "./overlay";
+import { t, resolveLocale } from "./i18n";
 
 /**
  * Settings window: a modal form over scanline.json. Edits fonts, theme, and
@@ -41,24 +42,30 @@ export class SettingsPanel {
     this.card.replaceChildren();
     const h = document.createElement("div");
     h.className = "settings-title";
-    h.textContent = "Settings";
+    h.textContent = t("settings.title");
     this.card.appendChild(h);
 
-    const uiFont = this.textField("Interface font", c.ui.fontFamily);
-    const minimal = this.checkField("Minimal mode (hide sidebar + tab bars)", c.ui.minimal);
-    const termFont = this.textField("Terminal font", c.terminal.fontFamily);
-    const termSize = this.numberField("Terminal font size", c.terminal.fontSize, 6, 40);
-    const scrollback = this.numberField("Scrollback lines", c.terminal.scrollback, 1000, 1000000);
-    const bg = this.colorField("Background", c.terminal.theme.background);
-    const fg = this.colorField("Foreground", c.terminal.theme.foreground);
-    const cur = this.colorField("Cursor", c.terminal.theme.cursor);
+    const language = this.selectField(t("settings.language"), c.ui.language, [
+      { value: "auto", label: t("settings.langAuto") },
+      { value: "pt", label: t("settings.langPt") },
+      { value: "en", label: t("settings.langEn") },
+    ]);
+    const uiFont = this.textField(t("settings.uiFont"), c.ui.fontFamily);
+    const minimal = this.checkField(t("settings.minimal"), c.ui.minimal);
+    const termFont = this.textField(t("settings.termFont"), c.terminal.fontFamily);
+    const termSize = this.numberField(t("settings.termSize"), c.terminal.fontSize, 6, 40);
+    const scrollback = this.numberField(t("settings.scrollback"), c.terminal.scrollback, 1000, 1000000);
+    const bg = this.colorField(t("settings.bg"), c.terminal.theme.background);
+    const fg = this.colorField(t("settings.fg"), c.terminal.theme.foreground);
+    const cur = this.colorField(t("settings.cursor"), c.terminal.theme.cursor);
 
     const btns = document.createElement("div");
     btns.className = "settings-btns";
     const save = document.createElement("button");
     save.className = "settings-btn primary";
-    save.textContent = "Save";
+    save.textContent = t("settings.save");
     save.onclick = () => {
+      const lang = language.value as "auto" | "pt" | "en";
       const next: ScanlineConfig = {
         terminal: {
           fontFamily: termFont.value.trim() || c.terminal.fontFamily,
@@ -66,19 +73,32 @@ export class SettingsPanel {
           scrollback: clampInt(scrollback.value, 1000, 1000000, c.terminal.scrollback),
           theme: { background: bg.value, foreground: fg.value, cursor: cur.value },
         },
-        ui: { fontFamily: uiFont.value.trim() || c.ui.fontFamily, minimal: minimal.checked },
+        ui: {
+          fontFamily: uiFont.value.trim() || c.ui.fontFamily,
+          minimal: minimal.checked,
+          language: lang,
+        },
         keybindings: c.keybindings,
       };
-      void this.onSave(next);
+      const langChanged = lang !== c.ui.language;
+      void Promise.resolve(this.onSave(next)).then(async () => {
+        if (langChanged) {
+          // The whole UI is built at boot in the active language; the cleanest,
+          // fully-correct way to repaint is a reload. The session restores.
+          const target = await resolveLocale(lang);
+          const current = await resolveLocale(c.ui.language);
+          if (target !== current) location.reload();
+        }
+      });
       this.close();
     };
     const cancel = document.createElement("button");
     cancel.className = "settings-btn";
-    cancel.textContent = "Cancel";
+    cancel.textContent = t("settings.cancel");
     cancel.onclick = () => this.close();
     const file = document.createElement("button");
     file.className = "settings-btn";
-    file.textContent = "Open config file";
+    file.textContent = t("settings.openFile");
     file.onclick = () => {
       this.close();
       this.onOpenFile();
@@ -139,6 +159,23 @@ export class SettingsPanel {
     i.checked = value;
     this.row(label, i);
     return i;
+  }
+  private selectField(
+    label: string,
+    value: string,
+    opts: { value: string; label: string }[],
+  ): HTMLSelectElement {
+    const s = document.createElement("select");
+    s.className = "settings-input";
+    for (const o of opts) {
+      const opt = document.createElement("option");
+      opt.value = o.value;
+      opt.textContent = o.label;
+      if (o.value === value) opt.selected = true;
+      s.appendChild(opt);
+    }
+    this.row(label, s);
+    return s;
   }
 }
 

@@ -1,4 +1,5 @@
 import { type PaneLike, nextPaneId } from "./types";
+import { t } from "./i18n";
 
 /**
  * A grid leaf that holds multiple surfaces (terminals/browsers) as tabs. Only
@@ -324,7 +325,7 @@ export class PaneContainer implements PaneLike {
       const label = document.createElement("span");
       label.className = "surface-tab-label";
       label.textContent = `${s.kind === "browser" ? "◉ " : ""}${s.title || s.kind}`;
-      label.title = "Double-click to rename";
+      label.title = t("pane.renameHint");
       label.ondblclick = (e) => {
         e.stopPropagation();
         this.beginRename(s, label);
@@ -355,13 +356,13 @@ export class PaneContainer implements PaneLike {
     const add = document.createElement("button");
     add.className = "surface-tab-add";
     add.textContent = "+";
-    add.title = "New terminal tab (Ctrl+T)";
+    add.title = t("pane.newTabTitle");
     add.onclick = () => this.newTerminalTab();
     // Drag handle: grab this to reposition the whole pane (swap with the pane
     // you drop on). Distinct from tab reorder (which drags the tab itself).
     const grip = document.createElement("div");
     grip.className = "pane-grip";
-    grip.title = "Drag to move this pane";
+    grip.title = t("pane.dragGrip");
     grip.onpointerdown = (e) => {
       if (e.button === 0) this.startPaneDrag(grip, e);
     };

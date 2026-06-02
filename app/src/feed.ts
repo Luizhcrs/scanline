@@ -4,6 +4,7 @@
  * the clicked option — the caller (over the pipe) stays blocked until then.
  */
 import { pushOverlay, popOverlay } from "./overlay";
+import { t } from "./i18n";
 
 export interface FeedCard {
   title: string;
@@ -25,7 +26,7 @@ export class FeedPanel {
     this.panel.style.display = "none";
     const header = document.createElement("div");
     header.className = "feed-header";
-    header.textContent = "Agent requests";
+    header.textContent = t("feed.header");
     this.list = document.createElement("div");
     this.list.className = "feed-list";
     this.panel.append(header, this.list);
@@ -41,7 +42,7 @@ export class FeedPanel {
       row.className = "feed-card";
       const title = document.createElement("div");
       title.className = "feed-card-title";
-      title.textContent = card.title || "Agent request";
+      title.textContent = card.title || t("feed.defaultTitle");
       const body = document.createElement("div");
       body.className = "feed-card-body";
       body.textContent = card.body;

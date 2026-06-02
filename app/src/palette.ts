@@ -3,6 +3,7 @@
  * the app supplies the items / search handlers.
  */
 import { pushOverlay, popOverlay } from "./overlay";
+import { t } from "./i18n";
 
 export interface PaletteItem {
   id: string;
@@ -71,7 +72,7 @@ export class CommandPalette {
     this.input.addEventListener("keydown", (e) => this.onKey(e));
   }
 
-  open(items: PaletteItem[], placeholder = "Type a command…"): void {
+  open(items: PaletteItem[], placeholder = t("palette.cmd")): void {
     // Reset sel to 0 for a fresh synchronous open; renderRows() preserves sel
     // across async re-renders but a brand-new item list should start at top.
     clearTimeout(this.debounce);
@@ -92,7 +93,7 @@ export class CommandPalette {
   /** Live backend-driven results: each keystroke queries `provider`. */
   openAsync(
     provider: (q: string) => Promise<PaletteItem[]>,
-    placeholder = "Search…",
+    placeholder = t("palette.search"),
   ): void {
     // Bump gen and cancel any in-flight debounce so a prior session's async
     // result cannot land in this new session (myGen !== this.gen guard below).
@@ -238,7 +239,7 @@ export class FindBar {
     this.bar.style.display = "none";
     this.input = document.createElement("input");
     this.input.className = "find-input";
-    this.input.placeholder = "Find…";
+    this.input.placeholder = t("palette.find");
     this.input.spellcheck = false;
     const prev = this.btn("‹", () => this.handlers?.prev());
     const next = this.btn("›", () => this.handlers?.next());
