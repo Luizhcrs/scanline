@@ -224,6 +224,15 @@ class App {
     // Guard matches the onOverlayChange sibling above — activeWs is undefined
     // until boot() finishes creating the first workspace.
     window.addEventListener("resize", () => { if (!this.activeWs) return; this.activeLayout.refitAll(); });
+    // Global DevTools shortcut — works regardless of which pane has focus
+    // (the xterm-scoped onKey handler only fires when a terminal is focused).
+    window.addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "f12" || (e.ctrlKey && e.shiftKey && k === "i")) {
+        e.preventDefault();
+        void invoke("open_devtools");
+      }
+    });
     // Best-effort final save when the window closes (the 8s autosave covers
     // crashes / power loss).
     window.addEventListener("beforeunload", () => {
@@ -821,7 +830,16 @@ class App {
       // (closeWorkspace deletes meta and splices it out), drop the result —
       // otherwise meta.set re-creates the deleted entry and leaks it forever.
       if (!this.workspaces.includes(w)) return;
-      if (JSON.stringify(next) !== JSON.stringify(this.meta.get(w.id))) {
+      const curr = this.meta.get(w.id);
+      const currPorts = curr?.ports || [];
+      const nextPorts = next.ports || [];
+      let changed = !curr || curr.cwd !== next.cwd || curr.branch !== next.branch || curr.dirty !== next.dirty || curr.pr !== next.pr || currPorts.length !== nextPorts.length;
+      if (!changed && curr) {
+        for (let i = 0; i < nextPorts.length; i++) {
+          if (currPorts[i] !== nextPorts[i]) changed = true;
+        }
+      }
+      if (changed) {
         this.meta.set(w.id, next);
         this.renderSidebar();
       }
