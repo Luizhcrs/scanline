@@ -65,7 +65,7 @@ var hookEvents = []string{
 	"Notification", "Stop", "SubagentStop", "UserPromptSubmit", "PreToolUse", "PostToolUse",
 }
 
-var geminiHookEvents = []string{"before_agent", "before_tool", "after_agent", "notification"}
+var geminiHookEvents = []string{"BeforeAgent", "BeforeTool", "AfterAgent", "Notification"}
 var droidHookEvents = []string{"Notification", "Stop", "UserPromptSubmit"}
 var kimiHookEvents = []string{"Notification", "Stop", "UserPromptSubmit"}
 
