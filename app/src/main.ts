@@ -1248,7 +1248,15 @@ class App {
             ? this.findContainer(cmd.surface)
             : { ws: this.activeWs, container: layout.focusedPane };
         const { ws, container } = hit ?? { ws: this.activeWs, container: layout.focusedPane };
-        this.notifs.add(container.paneId, cmd.title ?? "", cmd.body ?? cmd.text ?? "", ws.id);
+        // Key on the SURFACE paneId (the agent pane that fired the hook =
+        // cmd.surface/SCANLINE_SURFACE_ID), matching onFocusChange's clearForPane
+        // key. Keying on container.paneId never matched the clear key, so these
+        // notifications were never marked read and the sidebar badge only grew.
+        const surfaceId =
+          typeof cmd.surface === "number"
+            ? cmd.surface
+            : (container.activeSurface ?? container).paneId;
+        this.notifs.add(surfaceId, cmd.title ?? "", cmd.body ?? cmd.text ?? "", ws.id);
         return { ok: true };
       }
       case "grep": {
