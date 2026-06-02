@@ -1,7 +1,7 @@
 {
   "name": "scanline",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows-native terminal multiplexer + scriptable browser for AI coding agents",
   "license": "MIT",
   "author": "Luiz <luizhcrs@gmail.com>",

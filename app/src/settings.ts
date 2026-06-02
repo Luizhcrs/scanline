@@ -1,6 +1,7 @@
 import { config, type ScanlineConfig } from "./config";
 import { pushOverlay, popOverlay } from "./overlay";
 import { t, resolveLocale } from "./i18n";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 /**
  * Settings window: a modal form over scanline.json. Edits fonts, theme, and
@@ -82,13 +83,18 @@ export class SettingsPanel {
       };
       const langChanged = lang !== c.ui.language;
       void Promise.resolve(this.onSave(next)).then(async () => {
-        if (langChanged) {
-          // The whole UI is built at boot in the active language; the cleanest,
-          // fully-correct way to repaint is a reload. The session restores.
-          const target = await resolveLocale(lang);
-          const current = await resolveLocale(c.ui.language);
-          if (target !== current) location.reload();
-        }
+        if (!langChanged) return;
+        const target = await resolveLocale(lang);
+        const current = await resolveLocale(c.ui.language);
+        if (target === current) return;
+        // The whole UI is built at boot in the active language, so the language
+        // change needs a restart to repaint. Use a full process relaunch, NOT
+        // location.reload(): a webview reload tears down the frontend but leaves
+        // the backend PTYs alive and streaming over now-dead IPC channels, then
+        // boot() spawns a second set — the resulting churn stalls the main
+        // thread and hangs the app. relaunch() exits through the normal shutdown
+        // (kills the PTYs) and starts fresh, restoring the session cleanly.
+        await relaunch();
       });
       this.close();
     };
