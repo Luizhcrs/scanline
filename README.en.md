@@ -25,30 +25,36 @@ Key capabilities:
 - **Agent integration** — `scanline <agent>` launches any agent with a fake-tmux environment so its `tmux split-window` calls become real Scanline panes. Claude Code lifecycle hooks light up pane status dots and post notifications.
 - **Feed approval cards** — `scanline ask` blocks until a human clicks a choice; the agent's hook can gate on the reply before proceeding.
 - **Session restore** — workspaces, layout tree, cwd, and browser URLs are persisted and restored on launch.
+- **Bilingual UI** — Portuguese or English, detected from the OS language on first boot, with a manual override in Settings.
+- **Single instance** — a second launch focuses the existing window instead of starting a parallel process.
 
-**Why not the alternatives:**
+**How it compares:**
 
-| Tool | Gap |
+| Tool | Difference |
 |---|---|
 | cmux (manaflow-ai) | macOS-only, GPL-3.0 |
-| wmux | No scriptable browser — cannot close the agent's see-and-act loop |
+| wmux | closest Windows alternative — also has a CDP browser + MCP; Scanline differs on MIT license, local-first, and a native PT-BR/EN UI |
 | Warp | AI is cloud-tied and shell-centric; no agent-driven browser pane |
 | Wave Terminal | Browser widget is read-only for the AI, not a CDP-scriptable target |
 | Windows Terminal / WezTerm / Tabby | No agent hooks, no scriptable browser, no PR-status sidebar |
 
-Scanline's position: cmux's agent-native UX + CDP-scriptable WebView2 browser, local-first, MIT, lightweight (reuses the OS WebView2 runtime).
+Scanline's position: cmux's agent-native UX brought to Windows — a CDP-scriptable WebView2 browser, local-first, MIT, lightweight (reuses the OS WebView2 runtime, no bundled Chromium), and a native PT-BR/EN UI.
 
 ## Install
 
 ### Download the installer
 
-Download `Scanline_0.1.0_x64-setup.exe` (the NSIS installer) from the GitHub Releases page:
+From the GitHub Releases page you pick between an **installer** and a **portable** build:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
+- `Scanline_<version>_x64-setup.exe` — NSIS installer (recommended). Sets up Start Menu shortcuts and fetches the WebView2 runtime automatically if missing.
+- `Scanline_<version>_x64_en-US.msi` — MSI installer, for managed deployment (Group Policy, Intune).
+- `Scanline_<version>_portable_x64.zip` — portable. Unzip and run `app.exe`, no installation. Keep `scanline.exe` next to it.
+
 Because Scanline is not code-signed yet, Windows SmartScreen will show a "Windows protected your PC" dialog when you run the installer. This is expected for unsigned open-source applications. Click "More info" and then "Run anyway" to proceed — the installer is safe and the source is fully available in this repository.
 
-Once installed, Scanline checks for updates on every launch and offers a one-click download-and-relaunch when a new release is available. No manual reinstall needed.
+In-app auto-update is not enabled yet (the updater signing key is not configured). For now, grab new versions from the Releases page.
 
 ### Build from source
 
@@ -83,6 +89,8 @@ This emits `scanline.exe` (the Go module is also named `scanline`). Put it on yo
 - Agent integration: fake-tmux launcher, Claude Code lifecycle hooks, Feed approval cards.
 - Notifications: per-pane bells, unread badge per workspace, notification panel.
 - Session restore: layout, cwd, browser URLs — persisted to `%APPDATA%\scanline\session.json`.
+- Bilingual UI: Portuguese / English, auto-detected from the OS on first boot, override via `ui.language` (`auto` / `pt` / `en`); switching applies through a clean relaunch.
+- Single instance: a second launch focuses the existing window instead of starting a parallel process.
 - Config: JSONC `scanline.json`, live reload on window focus or `scanline config reload`.
 - Native touches: dark title bar matched to the app chrome, crash log at `%APPDATA%\scanline\crash.log`.
 
@@ -353,7 +361,9 @@ Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` an
   },
   "ui": {
     "fontFamily": "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif",
-    "minimal": false
+    "minimal": false,
+    // "auto" follows the OS language; "pt" or "en" force it.
+    "language": "auto"
   },
   // Rebind actions. Format: "ctrl+alt+shift+key".
   // Actions: palette, switcher, find, findInDir, newWorkspace, newTab,
@@ -435,7 +445,7 @@ scanline/
       *.test.ts          Unit tests (Vitest)
     src-tauri/           Rust core
       src/lib.rs         PTY bridge, browser/CDP bridge, control server, config
-      tauri.conf.json    Window + bundle config (version 0.1.0)
+      tauri.conf.json    Window + bundle config (version 0.1.1)
       Cargo.toml         Rust dependencies
   cli/                   Go CLI + tmux-compat shim
     main.go              Command dispatch + pipe RPC

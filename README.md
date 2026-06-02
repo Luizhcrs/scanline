@@ -25,30 +25,36 @@ Capacidades principais:
 - **Integracao com agentes** — `scanline <agente>` sobe qualquer agente num ambiente fake-tmux, entao os `tmux split-window` dele viram paineis Scanline de verdade. Hooks de ciclo de vida do Claude Code acendem os pontos de status do painel e postam notificacoes.
 - **Cartoes de aprovacao (Feed)** — `scanline ask` trava ate um humano clicar numa opcao; o hook do agente pode barrar na resposta antes de seguir.
 - **Restauracao de sessao** — workspaces, arvore de layout, cwd e URLs do navegador sao persistidos e restaurados ao abrir.
+- **UI bilingue** — interface em portugues ou ingles, detectada do idioma do SO no primeiro boot, com override manual nas Configuracoes.
+- **Instancia unica** — uma segunda abertura foca a janela existente em vez de subir um processo paralelo.
 
-**Por que nao as alternativas:**
+**Como se compara:**
 
-| Ferramenta | Lacuna |
+| Ferramenta | Diferenca |
 |---|---|
 | cmux (manaflow-ai) | so macOS, GPL-3.0 |
-| wmux | sem navegador scriptavel — nao fecha o loop ver-e-agir do agente |
+| wmux | alternativa Windows mais proxima — tambem tem navegador CDP + MCP; Scanline difere em licenca MIT, local-first e UI PT-BR/EN nativa |
 | Warp | IA atrelada a nuvem e centrada no shell; sem painel de navegador dirigido por agente |
 | Wave Terminal | o widget de navegador e somente-leitura pra IA, nao um alvo scriptavel via CDP |
 | Windows Terminal / WezTerm / Tabby | sem hooks de agente, sem navegador scriptavel, sem sidebar de status de PR |
 
-Posicionamento do Scanline: a UX agent-native do cmux + navegador WebView2 scriptavel via CDP, local-first, MIT, leve (reaproveita o runtime WebView2 do proprio SO).
+Posicionamento do Scanline: a UX agent-native do cmux trazida pro Windows — navegador WebView2 scriptavel via CDP, local-first, MIT, leve (reaproveita o runtime WebView2 do proprio SO, sem Chromium embutido) e UI nativa PT-BR/EN.
 
 ## Instalacao
 
 ### Baixar o instalador
 
-Baixe `Scanline_0.1.0_x64-setup.exe` (o instalador NSIS) na pagina de Releases do GitHub:
+Na pagina de Releases do GitHub voce escolhe entre **instalador** e **portable**:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
+- `Scanline_<versao>_x64-setup.exe` — instalador NSIS (recomendado). Cria atalhos no Menu Iniciar e baixa o runtime WebView2 automaticamente se faltar.
+- `Scanline_<versao>_x64_en-US.msi` — instalador MSI, pra deploy gerenciado (Group Policy, Intune).
+- `Scanline_<versao>_portable_x64.zip` — portable. Descompacte e rode `app.exe`, sem instalar. Mantenha o `scanline.exe` na mesma pasta.
+
 Como o Scanline ainda nao e assinado digitalmente, o Windows SmartScreen vai mostrar o dialogo "O Windows protegeu o computador" ao rodar o instalador. Isso e esperado em apps open-source sem assinatura. Clique em "Mais informacoes" e depois "Executar mesmo assim" — o instalador e seguro e o codigo-fonte esta inteiro neste repositorio.
 
-Uma vez instalado, o Scanline checa por atualizacoes a cada inicializacao e oferece um baixar-e-reabrir num clique quando ha versao nova. Sem reinstalar na mao.
+O auto-update in-app ainda nao esta habilitado (a chave de assinatura do updater nao foi configurada). Por enquanto, baixe versoes novas pela pagina de Releases.
 
 ### Compilar do codigo-fonte
 
@@ -83,6 +89,8 @@ Isso gera `scanline.exe` (o modulo Go tambem se chama `scanline`). Coloque no PA
 - Integracao com agentes: launcher fake-tmux, hooks de ciclo de vida do Claude Code, cartoes de aprovacao (Feed).
 - Notificacoes: bells por painel, badge de nao-lidas por workspace, painel de notificacoes.
 - Restauracao de sessao: layout, cwd, URLs do navegador — persistidos em `%APPDATA%\scanline\session.json`.
+- UI bilingue: portugues / ingles, auto-detectado do SO no primeiro boot, override em `ui.language` (`auto` / `pt` / `en`); a troca aplica via relaunch limpo.
+- Instancia unica: segunda abertura foca a janela existente em vez de subir um processo paralelo.
 - Config: `scanline.json` em JSONC, reload ao vivo no foco da janela ou `scanline config reload`.
 - Toques nativos: barra de titulo escura combinando com o chrome do app, log de crash em `%APPDATA%\scanline\crash.log`.
 
@@ -353,7 +361,9 @@ A config fica em `%APPDATA%\scanline\scanline.json`. O formato e JSONC (comentar
   },
   "ui": {
     "fontFamily": "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif",
-    "minimal": false
+    "minimal": false,
+    // "auto" segue o idioma do SO; "pt" ou "en" forcam.
+    "language": "auto"
   },
   // Remapeia acoes. Formato: "ctrl+alt+shift+key".
   // Acoes: palette, switcher, find, findInDir, newWorkspace, newTab,
@@ -435,7 +445,7 @@ scanline/
       *.test.ts          Testes unitarios (Vitest)
     src-tauri/           Nucleo Rust
       src/lib.rs         Ponte PTY, ponte browser/CDP, servidor de controle, config
-      tauri.conf.json    Config de janela + bundle (versao 0.1.0)
+      tauri.conf.json    Config de janela + bundle (versao 0.1.1)
       Cargo.toml         Dependencias Rust
   cli/                   CLI Go + shim tmux-compat
     main.go              Dispatch de comandos + RPC por pipe
