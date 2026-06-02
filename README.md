@@ -1,56 +1,58 @@
 <p align="center"><img src="assets/logo.png" width="120" alt="Scanline"></p>
 <h1 align="center">Scanline</h1>
-<p align="center">Windows-native terminal multiplexer + scriptable browser for AI coding agents.</p>
+<p align="center">Multiplexador de terminal nativo do Windows + navegador scriptavel para agentes de IA.</p>
+
+<p align="center"><b>Portugues</b> &middot; <a href="README.en.md">English</a></p>
 
 ---
 
-Scanline owns one window. Inside it you tile terminal panes and native WebView2 browser panes side by side, switch contexts with vertical-tab workspaces, and give agents a CDP-scriptable browser so they can snapshot, click, fill, and screenshot a live web app sitting next to the shell that built it.
+Scanline ocupa uma unica janela. Dentro dela voce divide paineis de terminal e paineis de navegador WebView2 nativos lado a lado, troca de contexto com workspaces em abas verticais, e da ao agente um navegador scriptavel via CDP — ele tira snapshot, clica, preenche e captura tela de um app web rodando ao lado do shell que o construiu.
 
-Native Windows: WebView2 + ConPTY. No WSL, no tmux, no bundled Chromium.
+Nativo do Windows: WebView2 + ConPTY. Sem WSL, sem tmux, sem Chromium embutido.
 
-## What it is and why
+## O que e e por que existe
 
-**The agent loop Scanline is built for:** the agent edits code in one pane, runs the dev server in another, then snapshots and drives its own web app in an adjacent WebView2 pane via CDP — with risky steps gated by blocking Feed approval cards for human-in-the-loop review.
+**O loop de agente para o qual o Scanline foi feito:** o agente edita codigo num painel, roda o dev server em outro, depois tira snapshot e dirige o proprio app web num painel WebView2 ao lado via CDP — com os passos arriscados barrados por cartoes de aprovacao (Feed) que travam ate um humano revisar.
 
-Key capabilities:
+Capacidades principais:
 
-- **Tiling grid** — split right or down, resize, zoom, equalize, and navigate panes with the keyboard.
-- **Vertical-tab workspaces** — each workspace shows cwd, git branch + dirty marker, listening ports, and PR status via `gh`.
-- **Surface tabs** — multiple terminals stacked in one grid leaf, with drag-reorder.
-- **Browser panes** — real WebView2 child webviews. They ignore X-Frame-Options, so any site loads. Back/forward/reload, page zoom, and DevTools included.
-- **Scriptable browser API** — CDP over `scanline browser`: snapshot interactive elements as `e1`, `e2`, …; click, fill, eval, screenshot, and more. Agents reference elements by tag, not by fragile XPath.
-- **Named-pipe control server** — external processes drive the live grid by writing V2 JSON-line requests to `\\.\pipe\scanline` and reading replies back. The Go CLI wraps this for shell use.
-- **Agent integration** — `scanline <agent>` launches any agent with a fake-tmux environment so its `tmux split-window` calls become real Scanline panes. Claude Code lifecycle hooks light up pane status dots and post notifications.
-- **Feed approval cards** — `scanline ask` blocks until a human clicks a choice; the agent's hook can gate on the reply before proceeding.
-- **Session restore** — workspaces, layout tree, cwd, and browser URLs are persisted and restored on launch.
+- **Grid de tiling** — divide pra direita ou pra baixo, redimensiona, zoom, equaliza e navega entre paineis pelo teclado.
+- **Workspaces em abas verticais** — cada workspace mostra cwd, branch git + marca de sujo, portas escutando e status de PR via `gh`.
+- **Abas de surface** — varios terminais empilhados numa mesma folha do grid, com reordenar arrastando.
+- **Paineis de navegador** — webviews filhas WebView2 reais. Ignoram X-Frame-Options, entao qualquer site carrega. Voltar/avancar/recarregar, zoom de pagina e DevTools inclusos.
+- **API de navegador scriptavel** — CDP via `scanline browser`: snapshot dos elementos interativos como `e1`, `e2`, …; click, fill, eval, screenshot e mais. O agente referencia elementos por tag, nao por XPath fragil.
+- **Servidor de controle por named pipe** — processos externos dirigem o grid ao vivo escrevendo requisicoes JSON-line V2 em `\\.\pipe\scanline` e lendo as respostas. A CLI em Go embrulha isso pro uso no shell.
+- **Integracao com agentes** — `scanline <agente>` sobe qualquer agente num ambiente fake-tmux, entao os `tmux split-window` dele viram paineis Scanline de verdade. Hooks de ciclo de vida do Claude Code acendem os pontos de status do painel e postam notificacoes.
+- **Cartoes de aprovacao (Feed)** — `scanline ask` trava ate um humano clicar numa opcao; o hook do agente pode barrar na resposta antes de seguir.
+- **Restauracao de sessao** — workspaces, arvore de layout, cwd e URLs do navegador sao persistidos e restaurados ao abrir.
 
-**Why not the alternatives:**
+**Por que nao as alternativas:**
 
-| Tool | Gap |
+| Ferramenta | Lacuna |
 |---|---|
-| cmux (manaflow-ai) | macOS-only, GPL-3.0 |
-| wmux | No scriptable browser — cannot close the agent's see-and-act loop |
-| Warp | AI is cloud-tied and shell-centric; no agent-driven browser pane |
-| Wave Terminal | Browser widget is read-only for the AI, not a CDP-scriptable target |
-| Windows Terminal / WezTerm / Tabby | No agent hooks, no scriptable browser, no PR-status sidebar |
+| cmux (manaflow-ai) | so macOS, GPL-3.0 |
+| wmux | sem navegador scriptavel — nao fecha o loop ver-e-agir do agente |
+| Warp | IA atrelada a nuvem e centrada no shell; sem painel de navegador dirigido por agente |
+| Wave Terminal | o widget de navegador e somente-leitura pra IA, nao um alvo scriptavel via CDP |
+| Windows Terminal / WezTerm / Tabby | sem hooks de agente, sem navegador scriptavel, sem sidebar de status de PR |
 
-Scanline's position: cmux's agent-native UX + CDP-scriptable WebView2 browser, local-first, MIT, lightweight (reuses the OS WebView2 runtime).
+Posicionamento do Scanline: a UX agent-native do cmux + navegador WebView2 scriptavel via CDP, local-first, MIT, leve (reaproveita o runtime WebView2 do proprio SO).
 
-## Install
+## Instalacao
 
-### Download the installer
+### Baixar o instalador
 
-Download `Scanline_0.1.0_x64-setup.exe` (the NSIS installer) from the GitHub Releases page:
+Baixe `Scanline_0.1.0_x64-setup.exe` (o instalador NSIS) na pagina de Releases do GitHub:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
-Because Scanline is not code-signed yet, Windows SmartScreen will show a "Windows protected your PC" dialog when you run the installer. This is expected for unsigned open-source applications. Click "More info" and then "Run anyway" to proceed — the installer is safe and the source is fully available in this repository.
+Como o Scanline ainda nao e assinado digitalmente, o Windows SmartScreen vai mostrar o dialogo "O Windows protegeu o computador" ao rodar o instalador. Isso e esperado em apps open-source sem assinatura. Clique em "Mais informacoes" e depois "Executar mesmo assim" — o instalador e seguro e o codigo-fonte esta inteiro neste repositorio.
 
-Once installed, Scanline checks for updates on every launch and offers a one-click download-and-relaunch when a new release is available. No manual reinstall needed.
+Uma vez instalado, o Scanline checa por atualizacoes a cada inicializacao e oferece um baixar-e-reabrir num clique quando ha versao nova. Sem reinstalar na mao.
 
-### Build from source
+### Compilar do codigo-fonte
 
-Prerequisites: Node 20+, Rust stable + MSVC build tools, Go 1.25+.
+Pre-requisitos: Node 20+, Rust stable + MSVC build tools, Go 1.25+.
 
 ```powershell
 cd app
@@ -58,139 +60,139 @@ npm install
 npm run tauri build
 ```
 
-Output: `app\src-tauri\target\release\bundle\` (NSIS + MSI installers, and the bare `.exe`).
+Saida: `app\src-tauri\target\release\bundle\` (instaladores NSIS + MSI e o `.exe` puro).
 
-Build the CLI separately:
+Compile a CLI separadamente:
 
 ```powershell
 cd cli
 go build
 ```
 
-This emits `scanline.exe` (the Go module is also named `scanline`). Put it on your PATH so agents and scripts can reach the running window.
+Isso gera `scanline.exe` (o modulo Go tambem se chama `scanline`). Coloque no PATH pra que agentes e scripts alcancem a janela em execucao.
 
 <details>
-<summary><b>Features</b></summary>
+<summary><b>Recursos</b></summary>
 
-- Tiling grid: split right/down, resize, zoom, equalize, focus navigation by arrow key.
-- Workspaces: vertical-tab sidebar with cwd, git branch + dirty marker, listening ports, linked PR via `gh`.
-- Surface tabs: multiple terminals per grid leaf, drag-reorder, jump-to-tab.
-- Browser panes: native WebView2 child webviews (ignore X-Frame-Options), back/forward/reload, page zoom, DevTools.
-- Scriptable browser over CDP: `snapshot`, `click`, `fill`, `type`, `eval`, `text`, `html`, `exists`, `wait`, `count`, `find`, `attr`, `value`, `visible`, `checked`, `check`, `uncheck`, `select`, `press`, `scroll`, `zoom`, `viewport`, `cookies`, `storage`, `screenshot`, `navigate`, `back`, `forward`, `reload`, `devtools`.
-- Named-pipe control server: V2 JSON-line request/response, so CLI and agents can both command and query the live grid.
-- Agent integration: fake-tmux launcher, Claude Code lifecycle hooks, Feed approval cards.
-- Notifications: per-pane bells, unread badge per workspace, notification panel.
-- Session restore: layout, cwd, browser URLs — persisted to `%APPDATA%\scanline\session.json`.
-- Config: JSONC `scanline.json`, live reload on window focus or `scanline config reload`.
-- Native touches: dark title bar matched to the app chrome, crash log at `%APPDATA%\scanline\crash.log`.
+- Grid de tiling: divide direita/baixo, redimensiona, zoom, equaliza, navega foco por seta.
+- Workspaces: sidebar em abas verticais com cwd, branch git + marca de sujo, portas escutando, PR vinculado via `gh`.
+- Abas de surface: varios terminais por folha do grid, reordenar arrastando, pular pra aba.
+- Paineis de navegador: webviews filhas WebView2 nativas (ignoram X-Frame-Options), voltar/avancar/recarregar, zoom de pagina, DevTools.
+- Navegador scriptavel via CDP: `snapshot`, `click`, `fill`, `type`, `eval`, `text`, `html`, `exists`, `wait`, `count`, `find`, `attr`, `value`, `visible`, `checked`, `check`, `uncheck`, `select`, `press`, `scroll`, `zoom`, `viewport`, `cookies`, `storage`, `screenshot`, `navigate`, `back`, `forward`, `reload`, `devtools`.
+- Servidor de controle por named pipe: requisicao/resposta JSON-line V2, pra CLI e agentes comandarem e consultarem o grid ao vivo.
+- Integracao com agentes: launcher fake-tmux, hooks de ciclo de vida do Claude Code, cartoes de aprovacao (Feed).
+- Notificacoes: bells por painel, badge de nao-lidas por workspace, painel de notificacoes.
+- Restauracao de sessao: layout, cwd, URLs do navegador — persistidos em `%APPDATA%\scanline\session.json`.
+- Config: `scanline.json` em JSONC, reload ao vivo no foco da janela ou `scanline config reload`.
+- Toques nativos: barra de titulo escura combinando com o chrome do app, log de crash em `%APPDATA%\scanline\crash.log`.
 
 </details>
 
 <details>
-<summary><b>Keyboard shortcuts</b></summary>
+<summary><b>Atalhos de teclado</b></summary>
 
-### General
+### Geral
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Ctrl+Shift+P | Command palette |
-| Ctrl+P | Switch workspace / pane |
-| Ctrl+/ | Keyboard shortcuts help |
-| Ctrl+, | Settings |
-| Ctrl+Shift+M | Minimal mode |
-| F11 | Fullscreen |
-| Ctrl+B | Toggle sidebar |
-| Ctrl+F | Find |
-| Ctrl+Shift+F | Find in directory |
+| Ctrl+Shift+P | Paleta de comandos |
+| Ctrl+P | Trocar workspace / painel |
+| Ctrl+/ | Ajuda de atalhos |
+| Ctrl+, | Configuracoes |
+| Ctrl+Shift+M | Modo minimal |
+| F11 | Tela cheia |
+| Ctrl+B | Alternar sidebar |
+| Ctrl+F | Buscar |
+| Ctrl+Shift+F | Buscar no diretorio |
 
 ### Workspaces
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Ctrl+N | New workspace |
-| Alt+1..8 | Jump to workspace (Alt+9 = last) |
-| Alt+Shift+, / . | Previous / next workspace |
+| Ctrl+N | Novo workspace |
+| Alt+1..8 | Pular pra workspace (Alt+9 = ultimo) |
+| Alt+Shift+, / . | Workspace anterior / proximo |
 
-### Panes and splits
+### Paineis e divisoes
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Alt+Shift+Right | Split right |
-| Alt+Shift+Down | Split down |
-| Alt+Shift+B | Open browser pane |
-| Alt+Arrows | Move focus between panes |
-| Alt+Shift+Z | Zoom pane |
-| Alt+Shift+E | Equalize splits |
-| Ctrl+Shift+H | Flash focused pane |
-| Ctrl+Shift+W | Close pane |
+| Alt+Shift+Right | Dividir pra direita |
+| Alt+Shift+Down | Dividir pra baixo |
+| Alt+Shift+B | Abrir painel de navegador |
+| Alt+Setas | Mover foco entre paineis |
+| Alt+Shift+Z | Zoom no painel |
+| Alt+Shift+E | Equalizar divisoes |
+| Ctrl+Shift+H | Piscar painel focado |
+| Ctrl+Shift+W | Fechar painel |
 
-### Tabs (surfaces)
+### Abas (surfaces)
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Ctrl+T | New terminal tab |
-| Ctrl+W | Close tab |
-| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
-| Ctrl+1..9 | Jump to tab |
+| Ctrl+T | Nova aba de terminal |
+| Ctrl+W | Fechar aba |
+| Ctrl+Tab / Ctrl+Shift+Tab | Proxima / anterior aba |
+| Ctrl+1..9 | Pular pra aba |
 
 ### Terminal
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Ctrl+Shift+K | Clear scrollback |
-| Ctrl+= / Ctrl+- / Ctrl+0 | Font size (browser pane: page zoom) |
-| Ctrl+Shift+C / V | Copy / paste |
-| Ctrl+Shift+A | Select all |
+| Ctrl+Shift+K | Limpar scrollback |
+| Ctrl+= / Ctrl+- / Ctrl+0 | Tamanho da fonte (painel navegador: zoom de pagina) |
+| Ctrl+Shift+C / V | Copiar / colar |
+| Ctrl+Shift+A | Selecionar tudo |
 
-### Notifications
+### Notificacoes
 
-| Shortcut | Action |
+| Atalho | Acao |
 |---|---|
-| Alt+Shift+N | Notifications panel |
-| Alt+Shift+U | Jump to latest unread |
+| Alt+Shift+N | Painel de notificacoes |
+| Alt+Shift+U | Pular pra ultima nao-lida |
 
-All rebindable actions can be overridden in `scanline.json` under `keybindings`.
+Todas as acoes remapaveis podem ser sobrescritas em `scanline.json` na chave `keybindings`.
 
 </details>
 
 <details>
-<summary><b>CLI reference</b></summary>
+<summary><b>Referencia da CLI</b></summary>
 
-Scanline must be running. The CLI talks to it over `\\.\pipe\scanline`.
+O Scanline precisa estar rodando. A CLI fala com ele por `\\.\pipe\scanline`.
 
-A process running inside a pane inherits `SCANLINE_SURFACE_ID`, so commands like `send`, `status`, and `browser` target the caller's own pane by default — no `--surface` flag needed.
+Um processo rodando dentro de um painel herda `SCANLINE_SURFACE_ID`, entao comandos como `send`, `status` e `browser` miram o proprio painel do chamador por padrao — sem precisar da flag `--surface`.
 
-### Layout and panes
-
-```powershell
-scanline split [--dir row|col] [-- <command...>]   # split the focused pane
-scanline run -- <command...>                       # split and run a command
-scanline web <url>                                 # open a browser pane
-scanline focus <left|right|up|down>                # move focus
-scanline list                                      # list panes (id, kind, focused, rect)
-scanline close                                     # close the focused pane
-scanline equalize                                  # equalize split sizes
-scanline zoom                                      # toggle zoom on focused pane
-scanline resize [delta]                            # resize focused pane (default delta: 0.05)
-scanline fullscreen                                # toggle fullscreen
-```
-
-### Pane I/O
+### Layout e paineis
 
 ```powershell
-scanline read   [--surface N]                      # read scrollback text from a pane
-scanline send   [--surface N] <text...>            # send literal text to a pane
-scanline key    [--surface N] <key>                # send a key/chord (enter, c-c, up, ...)
-scanline status [--surface N] <running|waiting|idle|error>  # set pane status dot
+scanline split [--dir row|col] [-- <command...>]   # divide o painel focado
+scanline run -- <command...>                       # divide e roda um comando
+scanline web <url>                                 # abre um painel de navegador
+scanline focus <left|right|up|down>                # move o foco
+scanline list                                      # lista paineis (id, tipo, focado, rect)
+scanline close                                     # fecha o painel focado
+scanline equalize                                  # equaliza tamanhos das divisoes
+scanline zoom                                      # alterna zoom no painel focado
+scanline resize [delta]                            # redimensiona painel focado (delta padrao: 0.05)
+scanline fullscreen                                # alterna tela cheia
 ```
 
-### Surface tabs
+### I/O de painel
+
+```powershell
+scanline read   [--surface N]                      # le texto do scrollback de um painel
+scanline send   [--surface N] <text...>            # envia texto literal a um painel
+scanline key    [--surface N] <key>                # envia tecla/chord (enter, c-c, up, ...)
+scanline status [--surface N] <running|waiting|idle|error>  # define o ponto de status
+```
+
+### Abas de surface
 
 ```powershell
 scanline surface new
 scanline surface next | prev
 scanline surface close
-scanline surface select <n>          # 1-based index
+scanline surface select <n>          # indice base-1
 scanline surface rename <name>
 ```
 
@@ -205,46 +207,45 @@ scanline ws rename <id> <name>
 scanline ws current
 ```
 
-### Notifications
+### Notificacoes
 
 ```powershell
-scanline notify [--title T] <body...>   # post a notification to a pane
-scanline notif                          # list notifications
-scanline notif clear                    # clear all notifications
+scanline notify [--title T] <body...>   # posta notificacao num painel
+scanline notif                          # lista notificacoes
+scanline notif clear                    # limpa todas as notificacoes
 ```
 
-### Agent and hooks
+### Agente e hooks
 
 ```powershell
-scanline <agent> [args...]              # launch an agent with fake-tmux environment
-scanline claude-teams [args...]         # launch Claude in teammate mode
-scanline hooks setup                    # install Claude Code hooks globally (~/.claude/settings.json)
-scanline hooks setup --project          # install into ./.claude/settings.json
+scanline <agente> [args...]             # sobe um agente em ambiente fake-tmux
+scanline claude-teams [args...]         # sobe o Claude em modo teammate
+scanline hooks setup                    # instala hooks do Claude Code global (~/.claude/settings.json)
+scanline hooks setup --project          # instala em ./.claude/settings.json
 ```
 
-### Misc
+### Diversos
 
 ```powershell
-scanline ask [--title T] [--options a,b,c] <question...>   # blocking approval card; prints choice
-scanline config edit                    # open scanline.json in the default editor
-scanline config reload                  # reload config live
+scanline ask [--title T] [--options a,b,c] <question...>   # cartao de aprovacao bloqueante; imprime a escolha
+scanline config edit                    # abre scanline.json no editor padrao
+scanline config reload                  # recarrega config ao vivo
 scanline ping                           # health check
 ```
 
 </details>
 
 <details>
-<summary><b>Scriptable browser API</b></summary>
-
+<summary><b>API de navegador scriptavel</b></summary>
 
 ```powershell
-# Navigation
+# Navegacao
 scanline browser open <url>
 scanline browser navigate <url> | back | forward | reload
 scanline browser devtools
 
-# Inspection
-scanline browser snapshot               # tag interactive elements as e1, e2, ...
+# Inspecao
+scanline browser snapshot               # marca elementos interativos como e1, e2, ...
 scanline browser url
 scanline browser text [css]
 scanline browser html [css]
@@ -257,7 +258,7 @@ scanline browser value <ref>
 scanline browser visible <ref>
 scanline browser checked <ref>
 
-# Interaction
+# Interacao
 scanline browser click <ref|css>
 scanline browser fill <ref|css> <text...>
 scanline browser type <ref|css> <text...>
@@ -266,20 +267,20 @@ scanline browser select <ref> <value>
 scanline browser press <key>
 scanline browser scroll [ref]
 
-# Page state
+# Estado da pagina
 scanline browser eval <js>
 scanline browser zoom <factor>
 scanline browser viewport <width> <height>
 scanline browser cookies [clear]
 scanline browser storage [get [key] | set <key> <value> | clear]
 
-# Output
+# Saida
 scanline browser screenshot [--out file.png]
 
-# All browser verbs accept --surface N to target a specific browser pane.
+# Todos os verbos browser aceitam --surface N pra mirar um painel de navegador especifico.
 ```
 
-Example agent loop:
+Exemplo de loop de agente:
 
 ```powershell
 scanline run -- npm run dev
@@ -293,51 +294,50 @@ scanline browser screenshot --out after.png
 </details>
 
 <details>
-<summary><b>Agent integration</b></summary>
+<summary><b>Integracao com agentes</b></summary>
 
-### Fake-tmux launcher
+### Launcher fake-tmux
 
-`scanline <agent>` launches any agent binary with a fake-tmux environment: a `tmux.cmd` shim is written to `%USERPROFILE%\.scanline\shim\` and prepended to PATH, and `TMUX` / `TMUX_PANE` are set so the agent believes it is inside a tmux session. When the agent runs `tmux split-window`, the shim forwards it to `scanline __tmux-compat`, which translates it into a real pane split.
+`scanline <agente>` sobe qualquer binario de agente num ambiente fake-tmux: um shim `tmux.cmd` e escrito em `%USERPROFILE%\.scanline\shim\` e adicionado ao inicio do PATH, e `TMUX` / `TMUX_PANE` sao setados pra que o agente acredite estar numa sessao tmux. Quando o agente roda `tmux split-window`, o shim encaminha pra `scanline __tmux-compat`, que traduz isso num split de painel real.
 
-Translated tmux verbs: `split-window`, `select-pane`, `kill-pane`, `resize-pane`, `send-keys`, `list-panes`, `capture-pane`, `has-session`.
-
-```powershell
-scanline claude             # Claude Code with tmux-compat
-scanline claude-teams       # Claude in teammate mode (SCANLINE_CLAUDE_TEAMS=1)
-scanline codex              # or any other agent on PATH
-```
-
-### Claude Code hooks
-
-Scanline installs these hooks automatically on launch (idempotent — it only
-adds its own entries and never clobbers an unparseable config), so pane status
-dots and notifications work out of the box. To (re)install manually, e.g. into
-a project-local config:
+Verbos tmux traduzidos: `split-window`, `select-pane`, `kill-pane`, `resize-pane`, `send-keys`, `list-panes`, `capture-pane`, `has-session`.
 
 ```powershell
-scanline hooks setup            # writes to %USERPROFILE%\.claude\settings.json
-scanline hooks setup --project  # writes to .\.claude\settings.json
+scanline claude             # Claude Code com tmux-compat
+scanline claude-teams       # Claude em modo teammate (SCANLINE_CLAUDE_TEAMS=1)
+scanline codex              # ou qualquer outro agente no PATH
 ```
 
-The hook is a no-op outside a Scanline pane, so it never disturbs Claude
-sessions you run in a normal terminal.
+### Hooks do Claude Code
 
-Event mapping:
+O Scanline instala estes hooks automaticamente na inicializacao (idempotente — so
+adiciona as proprias entradas e nunca quebra uma config nao-parseavel), pra que os
+pontos de status do painel e as notificacoes funcionem de cara. Pra (re)instalar
+na mao, ex. numa config local do projeto:
 
-| Claude Code event | Pane status |
+```powershell
+scanline hooks setup            # escreve em %USERPROFILE%\.claude\settings.json
+scanline hooks setup --project  # escreve em .\.claude\settings.json
+```
+
+O hook e no-op fora de um painel Scanline, entao nunca atrapalha sessoes do Claude
+rodando num terminal normal.
+
+Mapeamento de eventos:
+
+| Evento do Claude Code | Status do painel |
 |---|---|
 | UserPromptSubmit | running |
 | PreToolUse / PostToolUse | running |
-| Notification | waiting + notification posted |
+| Notification | waiting + notificacao postada |
 | Stop / SubagentStop | idle |
 
 </details>
 
 <details>
-<summary><b>Configuration</b></summary>
+<summary><b>Configuracao</b></summary>
 
-
-Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` and `/* */` comments are allowed). The file is loaded on boot and reloaded live on window focus or `scanline config reload`. Open it with `scanline config edit` or Ctrl+, in the Settings panel.
+A config fica em `%APPDATA%\scanline\scanline.json`. O formato e JSONC (comentarios `//` e `/* */` permitidos). O arquivo e carregado no boot e recarregado ao vivo no foco da janela ou com `scanline config reload`. Abra com `scanline config edit` ou Ctrl+, no painel de Configuracoes.
 
 ```jsonc
 {
@@ -355,85 +355,99 @@ Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` an
     "fontFamily": "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif",
     "minimal": false
   },
-  // Rebind actions. Format: "ctrl+alt+shift+key".
-  // Actions: palette, switcher, find, findInDir, newWorkspace, newTab,
+  // Remapeia acoes. Formato: "ctrl+alt+shift+key".
+  // Acoes: palette, switcher, find, findInDir, newWorkspace, newTab,
   //          settings, minimal, fullscreen, help.
   "keybindings": {}
 }
 ```
 
-Other state files (not user-edited):
+Outros arquivos de estado (nao editados pelo usuario):
 
-| File | Contents |
+| Arquivo | Conteudo |
 |---|---|
-| `%APPDATA%\scanline\session.json` | Workspace layout, cwd, browser URLs |
-| `%APPDATA%\scanline\crash.log` | Crash reports |
+| `%APPDATA%\scanline\session.json` | Layout de workspace, cwd, URLs do navegador |
+| `%APPDATA%\scanline\crash.log` | Relatorios de crash |
 
-## Architecture
+</details>
 
+<details>
+<summary><b>Arquitetura</b></summary>
+
+```mermaid
+flowchart TB
+    subgraph WIN["Janela Scanline (WebView2)"]
+        direction LR
+        SIDE["Sidebar<br/>workspaces"]
+        GRID["Grid<br/>paineis xterm.js (DOM)<br/>+ webviews filhas WebView2"]
+        SIDE --- GRID
+    end
+
+    subgraph RUST["Nucleo Rust (Tauri 2)"]
+        PTY["Ponte ConPTY<br/>portable-pty: spawn / read / write / size"]
+        BROW["Gerenciador de navegador<br/>webviews filhas + ponte CDP"]
+        PIPE["Servidor de controle por named pipe<br/>&#92;&#92;.&#92;pipe&#92;scanline (V2 JSON)"]
+        PERSIST["Persistencia de sessao + config<br/>%APPDATA%&#92;scanline"]
+    end
+
+    subgraph CLI["CLI Go (scanline.exe)"]
+        CMD["Comandos diretos<br/>split / run / web / browser / send"]
+        SHIM["Shim tmux-compat<br/>tmux split-window &rarr; paineis reais"]
+        AGENT["Launcher de agente<br/>+ hooks do Claude Code"]
+    end
+
+    WIN -->|"Tauri IPC<br/>comandos + eventos"| RUST
+    RUST -.->|"CDP via with_webview<br/>CallDevToolsProtocolMethod"| WIN
+    CLI <-->|"linhas JSON sobre named pipe"| PIPE
 ```
-+---------------------------------------------------------------+
-|  Scanline window (WebView2)                                   |
-|                                                               |
-|  Sidebar (workspaces)  |  Grid: terminal + browser panes      |
-|                        |    xterm.js (DOM renderer)           |
-|                        |    native WebView2 child webviews    |
-+------------------------+--------------------------------------+
-        |  Tauri IPC (commands + events)       ^  CDP via with_webview
-        v                                      |  (CallDevToolsProtocolMethod)
-+---------------------------------------------------------------+
-|  Rust core (Tauri 2)                                          |
-|   - ConPTY bridge (portable-pty): spawn / read / write / size |
-|   - Browser manager: child webviews + CDP bridge             |
-|   - Named-pipe control server  \\.\pipe\scanline (V2 JSON)   |
-|   - Session + config persistence (%APPDATA%\scanline)        |
-+---------------------------------------------------------------+
-        ^  JSON lines over named pipe
-        |
-+---------------------------------------------------------------+
-|  Go CLI  (scanline.exe)                                       |
-|   - Direct commands: split / run / web / browser / send / …  |
-|   - tmux-compat shim (tmux split-window -> real panes)       |
-|   - Agent launcher + Claude Code hooks                       |
-+---------------------------------------------------------------+
-```
 
-- **Frontend:** TypeScript + Vite + xterm.js. The terminal uses the DOM renderer deliberately — the WebGL addon wedges the WebView2 renderer on this stack.
-- **PTY:** each terminal pane is a ConPTY via `portable-pty`. Output is coalesced and base64-encoded before crossing the Tauri IPC bridge.
-- **Browser panes:** native WebView2 child webviews positioned over the DOM grid. The scriptable API reaches `ICoreWebView2` through Tauri's `with_webview` escape hatch and calls `CallDevToolsProtocolMethodAsync` for real CDP.
-- **Control:** a single-instance named-pipe server (`\\.\pipe\scanline`) forwards requests to the frontend and routes replies back, enabling both fire-and-forget commands and request/response queries.
+- **Frontend:** TypeScript + Vite + xterm.js. O terminal usa o renderer DOM de proposito — o addon WebGL trava o renderer do WebView2 nessa stack.
+- **PTY:** cada painel de terminal e um ConPTY via `portable-pty`. A saida e agrupada e codificada em base64 antes de cruzar a ponte IPC do Tauri.
+- **Paineis de navegador:** webviews filhas WebView2 nativas posicionadas sobre o grid DOM. A API scriptavel alcanca `ICoreWebView2` pela valvula de escape `with_webview` do Tauri e chama `CallDevToolsProtocolMethodAsync` pra CDP de verdade.
+- **Controle:** um servidor de named pipe de instancia unica (`\\.\pipe\scanline`) encaminha requisicoes pro frontend e roteia as respostas de volta, permitindo tanto comandos fire-and-forget quanto consultas requisicao/resposta.
 
-## Project layout
+</details>
+
+<details>
+<summary><b>Estrutura do projeto</b></summary>
 
 ```
 scanline/
-  app/                   Tauri application
-    index.html           shell + dark splash
+  app/                   Aplicacao Tauri
+    index.html           shell + splash escuro
     src/                 Frontend (TypeScript, xterm.js)
-      main.ts            App shell: workspaces, shortcuts, control dispatch
-      layout.ts          Tiling grid (splits, focus, zoom, serialize)
-      pane.ts            Terminal pane (xterm + ConPTY bridge)
-      browser.ts         Browser pane (WebView2 child webview)
-      browserApi.ts      Scriptable browser API over CDP
-      paneContainer.ts   Surface tabs within a grid leaf
-      palette.ts         Command palette + find bar
-      feed.ts            Blocking approval cards
-      notifications.ts   Notification store + panel
-      settings.ts        Settings panel
+      main.ts            Shell do app: workspaces, atalhos, dispatch de controle
+      layout.ts          Grid de tiling (splits, foco, zoom, serializacao)
+      pane.ts            Painel de terminal (xterm + ponte ConPTY)
+      paneContainer.ts   Abas de surface dentro de uma folha do grid
+      browser.ts         Painel de navegador (webview filha WebView2)
+      browserApi.ts      API de navegador scriptavel via CDP
+      palette.ts         Paleta de comandos + barra de busca
+      contextmenu.ts     Menu de contexto (clique direito)
+      overlay.ts         Pilha de overlays (Esc / clique-fora)
+      feed.ts            Cartoes de aprovacao bloqueantes
+      notifications.ts   Store + painel de notificacoes
+      settings.ts        Painel de configuracoes
       config.ts          scanline.json load / merge / apply
-    src-tauri/           Rust core
-      src/lib.rs         PTY bridge, browser/CDP bridge, control server, config
-      tauri.conf.json    Window + bundle config (version 0.1.0)
-      Cargo.toml         Rust dependencies
-  cli/                   Go CLI + tmux-compat shim
-    main.go              Command dispatch + pipe RPC
-    tmux.go              tmux-compat translation + agent launcher
-    browser.go           Scriptable-browser CLI verbs
-    hooks.go             Claude Code hook dispatch + setup
-    feed.go              Blocking approval (scanline ask)
-  docs/design/           UI normalization plan
+      updater.ts         Auto-update na inicializacao
+      types.ts           Tipos compartilhados do frontend
+      styles.css         Tokens de design + estilos do chrome
+      *.test.ts          Testes unitarios (Vitest)
+    src-tauri/           Nucleo Rust
+      src/lib.rs         Ponte PTY, ponte browser/CDP, servidor de controle, config
+      tauri.conf.json    Config de janela + bundle (versao 0.1.0)
+      Cargo.toml         Dependencias Rust
+  cli/                   CLI Go + shim tmux-compat
+    main.go              Dispatch de comandos + RPC por pipe
+    tmux.go              Traducao tmux-compat + launcher de agente
+    browser.go           Verbos de navegador scriptavel na CLI
+    hooks.go             Dispatch + setup dos hooks do Claude Code
+    feed.go              Aprovacao bloqueante (scanline ask)
+    *_test.go            Testes da CLI
 ```
 
-## License
+</details>
 
-MIT. Scanline is a clean-room reimplementation of the agent-native terminal UX pioneered by cmux (manaflow-ai/cmux, GPL-3.0). No code is copied from cmux; the behavior of the tmux-compat shim and agent integration is modeled, not derived. See [LICENSE](LICENSE).
+## Licenca
+
+MIT. O Scanline e uma reimplementacao clean-room da UX agent-native de terminal pioneirada pelo cmux (manaflow-ai/cmux, GPL-3.0). Nenhum codigo e copiado do cmux; o comportamento do shim tmux-compat e da integracao com agentes e modelado, nao derivado. Veja [LICENSE](LICENSE).
