@@ -59,6 +59,7 @@ export class BrowserPane implements PaneLike {
   onFocusRequest?: (pane: PaneLike) => void;
   onCloseRequest?: (pane: PaneLike) => void;
   onSplitRequest?: (pane: PaneLike) => void;
+  onOpenUrl?: (pane: PaneLike, url: string) => void;
 
   constructor(initialUrl = "https://duckduckgo.com") {
     this.pendingUrl = toUrl(initialUrl);
@@ -257,6 +258,13 @@ export class BrowserPane implements PaneLike {
     }).then((un) => {
       if (this.disposed) un();
       else this.urlUnlisten = un;
+    });
+    // Intercept new-window requests (target="_blank", window.open): open as a
+    // new Scanline browser pane split beside this one instead of a system window.
+    void listen<string>(`browser://${this.paneId}/new-window`, (e) => {
+      const url = e.payload;
+      if (this.disposed || typeof url !== "string" || !url) return;
+      this.onOpenUrl?.(this, url);
     });
     this.startDialogListener();
   }

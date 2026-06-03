@@ -1259,6 +1259,47 @@ async fn browser_open(
                 log_warn!("browser", "add_ScriptDialogOpening failed pane={}: {:?}", id, e);
             }
         });
+
+        // Intercept new-window requests (target="_blank", window.open) so they
+        // open as a new Scanline browser pane instead of a system browser window.
+        // The frontend listens for browser://{id}/new-window and calls splitFocused.
+        let new_win_app = app.clone();
+        let _ = webview.with_webview(move |pw| {
+            use webview2_com::NewWindowRequestedEventHandler;
+            use windows::core::PWSTR;
+
+            let handler = NewWindowRequestedEventHandler::create(Box::new(move |_sender, args| {
+                let args = match args {
+                    Some(a) => a,
+                    None => return Ok(()),
+                };
+                let url = unsafe {
+                    let mut p = PWSTR::null();
+                    let _ = args.Uri(&mut p);
+                    webview2_com::take_pwstr(p)
+                };
+                if url.is_empty() {
+                    return Ok(());
+                }
+                // Mark the request as handled so WebView2 does not open a
+                // native popup window or defer to the system browser.
+                let _ = unsafe { args.SetHandled(true) };
+                let _ = new_win_app.emit(&format!("browser://{id}/new-window"), url);
+                Ok(())
+            }));
+
+            let result = (|| -> windows::core::Result<()> {
+                unsafe {
+                    let core = pw.controller().CoreWebView2()?;
+                    let mut token = Default::default();
+                    core.add_NewWindowRequested(&handler, &mut token)?;
+                }
+                Ok(())
+            })();
+            if let Err(e) = result {
+                log_warn!("browser", "add_NewWindowRequested failed pane={}: {:?}", id, e);
+            }
+        });
     }
 
     Ok(())
