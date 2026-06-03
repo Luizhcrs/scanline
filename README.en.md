@@ -33,7 +33,7 @@ Key capabilities:
 | Tool | Difference |
 |---|---|
 | cmux (manaflow-ai) | macOS-only, GPL-3.0 |
-| wmux | closest Windows alternative — also has a CDP browser + MCP; Scanline differs on MIT license, local-first, and a native PT-BR/EN UI |
+| wmux | closest Windows alternative — also has a CDP browser; Scanline differs on MIT license, local-first, and a native PT-BR/EN UI |
 | Warp | AI is cloud-tied and shell-centric; no agent-driven browser pane |
 | Wave Terminal | Browser widget is read-only for the AI, not a CDP-scriptable target |
 | Windows Terminal / WezTerm / Tabby | No agent hooks, no scriptable browser, no PR-status sidebar |

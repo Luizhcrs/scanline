@@ -257,6 +257,24 @@ fn start_hang_watch(app: AppHandle) {
 /// Spawn a new ConPTY running the user's shell. The frontend supplies the pty
 /// `id` so it can register its per-pty event listeners *before* spawning —
 /// otherwise the shell's first prompt races ahead of the listener and is lost.
+fn kill_process_tree(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn pty_spawn(
     app: AppHandle,
@@ -343,16 +361,18 @@ fn pty_spawn(
     // the same pty://{id} channel). Kill any existing pty on this id first.
     // Bump the generation so the old threads' captured gen != current gen and
     // they skip emitting on the new pane's channel. (bug #113)
-    if let Some(mut old) = state.ptys.lock().unwrap().remove(&id) {
+    if let Some(mut old) = state.ptys.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+        let opid = old.child.process_id().unwrap_or(0);
         let _ = old.child.kill();
+        kill_process_tree(opid);
     }
     let current_gen = {
-        let mut gens = state.generations.lock().unwrap();
+        let mut gens = state.generations.lock().unwrap_or_else(|e| e.into_inner());
         let g = gens.entry(id).or_insert(0);
         *g += 1;
         *g
     };
-    state.ptys.lock().unwrap().insert(
+    state.ptys.lock().unwrap_or_else(|e| e.into_inner()).insert(
         id,
         Pty {
             writer,
@@ -535,7 +555,7 @@ fn take_chunk(buf: &mut Vec<u8>, max: usize) -> Vec<u8> {
 /// non-UTF-8 key sequences survive the round-trip.
 #[tauri::command]
 fn pty_write(state: State<PtyManager>, id: u32, data: Vec<u8>) -> Result<(), String> {
-    let mut map = state.ptys.lock().unwrap();
+    let mut map = state.ptys.lock().unwrap_or_else(|e| e.into_inner());
     // Return Err on unknown id so the frontend can log/surface dropped keystrokes
     // instead of silently no-oping on a dead pty. (bug #234)
     match map.get_mut(&id) {
@@ -551,7 +571,7 @@ fn pty_write(state: State<PtyManager>, id: u32, data: Vec<u8>) -> Result<(), Str
 /// Resize a pty to match the xterm.js viewport.
 #[tauri::command]
 fn pty_resize(state: State<PtyManager>, id: u32, rows: u16, cols: u16) -> Result<(), String> {
-    let map = state.ptys.lock().unwrap();
+    let map = state.ptys.lock().unwrap_or_else(|e| e.into_inner());
     // Return Err on unknown id, same rationale as pty_write. (bug #234)
     match map.get(&id) {
         Some(p) => p
@@ -570,8 +590,10 @@ fn pty_resize(state: State<PtyManager>, id: u32, rows: u16, cols: u16) -> Result
 /// Close a pty: kill the child and drop its handles.
 #[tauri::command]
 fn pty_close(state: State<PtyManager>, id: u32) -> Result<(), String> {
-    if let Some(mut p) = state.ptys.lock().unwrap().remove(&id) {
+    if let Some(mut p) = state.ptys.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+        let pid = p.child.process_id().unwrap_or(0);
         let _ = p.child.kill();
+        kill_process_tree(pid);
     }
     Ok(())
 }
@@ -700,7 +722,7 @@ fn parse_listening_ports(
 /// Listening TCP ports owned by a pane's process tree (the shell + descendants).
 #[tauri::command]
 async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, String> {
-    let root = match state.ptys.lock().unwrap().get(&id) {
+    let root = match state.ptys.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
         Some(p) => p.pid,
         None => return Ok(vec![]),
     };
@@ -749,11 +771,22 @@ async fn pane_ports(state: State<'_, PtyManager>, id: u32) -> Result<Vec<u16>, S
 fn parse_grep_lines(raw: &str) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     for line in raw.lines().take(200) {
-        // file:line:text  (paths are cwd-relative, so the first two colons split it)
-        let mut it = line.splitn(3, ':');
-        let file = it.next().unwrap_or("");
-        let lno = it.next().unwrap_or("");
-        let text = it.next().unwrap_or("");
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let mut file_parts_count = 1;
+        // Handle Windows absolute paths (e.g., C:\path:10:match)
+        // parts[0] is "C", parts[1] is "\path", parts[2] is "10", parts[3] is "match"
+        if parts[0].len() == 1 && parts[0].chars().next().map_or(false, |c| c.is_alphabetic()) && parts[1].starts_with('\\') {
+            file_parts_count = 2;
+        }
+
+        let file = parts[..file_parts_count].join(":");
+        let lno = parts.get(file_parts_count).unwrap_or(&"");
+        let text = parts[file_parts_count + 1..].join(":");
+
         if file.is_empty() || lno.is_empty() {
             continue;
         }
@@ -866,7 +899,12 @@ const DEFAULT_CONFIG: &str = r##"{
 #[tauri::command]
 fn open_devtools(app: AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        win.open_devtools();
+        let _ = win.with_webview(|w| unsafe {
+            #[cfg(windows)]
+            if let Ok(core) = w.controller().CoreWebView2() {
+                let _ = core.OpenDevToolsWindow();
+            }
+        });
     }
 }
 
@@ -1284,10 +1322,10 @@ fn browser_navigate(
 
     {
         let mut pending = browsers.nav_pending.lock().unwrap_or_else(|e| e.into_inner());
-        if pending.contains_key(&id) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) = pending.entry(id) {
             // A navigate is already queued. Update to latest URL (last-write-wins)
             // and skip posting another run_on_main_thread — one in-flight is enough.
-            pending.insert(id, url);
+            e.insert(url);
             return Ok(());
         }
         pending.insert(id, url);
@@ -1553,7 +1591,7 @@ struct ControlPending(Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_j
 /// The frontend delivers a V2 response here; route it to the waiting pipe client.
 #[tauri::command]
 fn control_reply(pending: State<ControlPending>, id: String, response: serde_json::Value) {
-    if let Some(tx) = pending.0.lock().unwrap().remove(&id) {
+    if let Some(tx) = pending.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
         let _ = tx.send(response);
     }
 }
@@ -1660,7 +1698,7 @@ async fn handle_control_client(
                             app.state::<ControlPending>()
                                 .0
                                 .lock()
-                                .unwrap()
+                                .unwrap_or_else(|e| e.into_inner())
                                 .insert(req_id.clone(), tx);
                             let _ = app.emit("control://request", v.clone());
                             // Per-method deadline: blocking Feed approvals
@@ -1724,55 +1762,55 @@ async fn handle_control_client(
     }
 }
 
-/// Spawn the named-pipe control server on Tauri's async runtime. Uses the
-/// classic accept loop: create the next pipe instance before handing the
-/// connected one to a task, so concurrent clients never get refused.
-/// `first_pipe_instance(true)` also enforces single-instance ownership of the
-/// pipe name.
+/// Start the named pipe control server (\\.\pipe\scanline).
+/// Uses multiple concurrent listeners to eliminate the race window where no
+/// pipe instance is available between a client connection and the next
+/// instance creation.
 #[cfg(windows)]
 fn start_control_server(app: AppHandle) {
     use tokio::net::windows::named_pipe::ServerOptions;
 
-    tauri::async_runtime::spawn(async move {
-        let mut server = match ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(CONTROL_PIPE)
-        {
-            Ok(s) => s,
-            Err(e) => {
-                log_error!("control", "cannot create {}: {}", CONTROL_PIPE, e);
-                return;
-            }
-        };
-        loop {
-            if server.connect().await.is_err() {
-                // Recreate with bounded retry+backoff so a transient resource
-                // error does not permanently kill the control server. (bug #1095)
-                server = loop {
-                    match ServerOptions::new().create(CONTROL_PIPE) {
-                        Ok(s) => break s,
+    // Maintain 3 concurrent listeners. When one accepts, it spawns a handler
+    // and immediately starts a new listener instance.
+        for i in 0..3 {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            // Only the very first instance of the very first listener needs first_pipe_instance(true).
+            let mut first_attempt = i == 0;
+            loop {
+                let server = loop {
+                    let mut opts = ServerOptions::new();
+                    if first_attempt {
+                        opts.first_pipe_instance(true);
+                    }
+                    match opts.create(CONTROL_PIPE) {
+                        Ok(s) => {
+                            first_attempt = false;
+                            break s;
+                        }
                         Err(e) => {
-                            log_error!("control", "pipe recreate failed: {}", e);
+                            // If first_pipe_instance(true) fails, another listener likely won the race.
+                            // Clear the flag and retry normally.
+                            if first_attempt {
+                                first_attempt = false;
+                                continue;
+                            }
+                            log_error!("control", "pipe create failed: {}", e);
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }
                 };
-                continue;
-            }
-            let connected = server;
-            // Same retry loop for the post-handoff recreate. (bug #1095)
-            server = loop {
-                match ServerOptions::new().create(CONTROL_PIPE) {
-                    Ok(s) => break s,
-                    Err(e) => {
-                        eprintln!("control: recreate failed (retrying): {e}");
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    }
+
+                if server.connect().await.is_ok() {
+                    tauri::async_runtime::spawn(handle_control_client(server, app.clone()));
+                } else {
+                    // connect() failed (e.g. client disconnected before we could hand off).
+                    // loop will recreate a new instance.
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
-            };
-            tauri::async_runtime::spawn(handle_control_client(connected, app.clone()));
-        }
-    });
+            }
+        });
+    }
 }
 
 #[cfg(not(windows))]
@@ -2102,21 +2140,18 @@ mod tests {
         assert_eq!(out[0]["line"], 0);
     }
 
-    // Pin the splitn(3,':') relative-path assumption:
-    // An absolute Windows path `C:\path:3:hit` mis-splits on the drive colon
-    // so `file` becomes "C" (not the full path). This is expected and documented
-    // in parse_grep_lines. rg is always invoked with a relative "." target so
-    // absolute paths do not appear in normal use.
+    // Windows absolute paths like `C:\path\foo.rs:3:hit` are handled correctly
+    // by checking if the first part is a drive letter and the second starts with '\'.
     #[test]
-    fn grep_absolute_windows_path_misparse_documented() {
-        // Input as rg would emit for an absolute path (unlikely but possible).
+    fn grep_absolute_windows_path_parsed_correctly() {
+        // Input as rg would emit for an absolute path.
         let raw = r"C:\path\foo.rs:3:hit";
         let out = parse_grep_lines(raw);
         assert_eq!(
-            out[0]["file"], "C",
-            "absolute Windows path mis-splits: file is the drive letter, not the full path"
+            out[0]["file"], r"C:\path\foo.rs",
+            "absolute Windows path parses correctly with drive letter"
         );
-        assert_eq!(out[0]["line"], 0); // r"\path\foo.rs" is not a number
+        assert_eq!(out[0]["line"], 3);
     }
 
     // ---- collect_descendants ----
@@ -2186,3 +2221,4 @@ mod tests {
         assert!(buf.is_empty());
     }
 }
+

@@ -267,15 +267,21 @@ func launchAgent(agent string, args []string, extraEnv ...string) {
 	}
 }
 
-// writeTmuxShim creates a dir with a tmux.cmd that forwards to
-// `scanline __tmux-compat`. Returns the dir to prepend to PATH.
+// writeTmuxShim creates a dir with a tmux.cmd and an extensionless tmux shim
+// that forward to `scanline __tmux-compat`. Returns the dir to prepend to PATH.
 func writeTmuxShim(self string) (string, error) {
 	dir := filepath.Join(os.Getenv("USERPROFILE"), ".scanline", "shim")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	shim := "@echo off\r\n\"" + self + "\" __tmux-compat %*\r\n"
-	if err := os.WriteFile(filepath.Join(dir, "tmux.cmd"), []byte(shim), 0o755); err != nil {
+	// Windows CMD/PowerShell shim
+	shimCmd := "@echo off\r\n\"" + self + "\" __tmux-compat %*\r\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux.cmd"), []byte(shimCmd), 0o755); err != nil {
+		return "", err
+	}
+	// Unix-like shell (MSYS2, Git Bash, Cygwin) shim
+	shimSh := "#!/bin/sh\n\"" + filepath.ToSlash(self) + "\" __tmux-compat \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(shimSh), 0o755); err != nil {
 		return "", err
 	}
 	return dir, nil

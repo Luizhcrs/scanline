@@ -345,7 +345,9 @@ export class Layout {
     const sibling = this.siblingOf(this.root, pane);
     if (sibling === undefined) return; // last pane — keep at least one
     if (this.zoomed === pane) this.zoomed = null;
-    this.root = this.removeLeaf(this.root, pane)!;
+    const nextRoot = this.removeLeaf(this.root, pane);
+    if (!nextRoot) return;
+    this.root = nextRoot;
     this.onPaneClosed?.(pane.paneId);
     this.render();
     // Only move focus if we closed the FOCUSED pane (a background/agent-driven
@@ -389,18 +391,32 @@ export class Layout {
       const r = p.el.getBoundingClientRect();
       const px = r.left + r.width / 2;
       const py = r.top + r.height / 2;
-      const dx = px - cx;
-      const dy = py - cy;
+
+      // Candidate must be in the correct direction (relative to the current pane's edges)
       const ok =
-        (direction === "left" && dx < -1) ||
-        (direction === "right" && dx > 1) ||
-        (direction === "up" && dy < -1) ||
-        (direction === "down" && dy > 1);
+        (direction === "left" && r.right <= cur.left + 1) ||
+        (direction === "right" && r.left >= cur.right - 1) ||
+        (direction === "up" && r.bottom <= cur.top + 1) ||
+        (direction === "down" && r.top >= cur.bottom - 1);
       if (!ok) continue;
+
+      const dx = Math.abs(px - cx);
+      const dy = Math.abs(py - cy);
+
+      // Overlap: how much of the target's range overlaps with the current pane's
+      // range on the cross-axis. (e.g. for "right", how much height they share).
+      const overlap =
+        direction === "left" || direction === "right"
+          ? Math.max(0, Math.min(cur.bottom, r.bottom) - Math.max(cur.top, r.top))
+          : Math.max(0, Math.min(cur.right, r.right) - Math.max(cur.left, r.left));
+
+      // Score: primary axis distance + secondary axis penalty - overlap bonus.
+      // Overlap bonus is heavily weighted to prefer panes in the same "row/column".
       const score =
         direction === "left" || direction === "right"
-          ? Math.abs(dx) + Math.abs(dy) * 2
-          : Math.abs(dy) + Math.abs(dx) * 2;
+          ? dx + dy * 2 - overlap * 2
+          : dy + dx * 2 - overlap * 2;
+
       if (score < bestScore) {
         bestScore = score;
         best = p;

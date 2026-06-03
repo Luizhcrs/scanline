@@ -33,7 +33,7 @@ Capacidades principais:
 | Ferramenta | Diferenca |
 |---|---|
 | cmux (manaflow-ai) | so macOS, GPL-3.0 |
-| wmux | alternativa Windows mais proxima — tambem tem navegador CDP + MCP; Scanline difere em licenca MIT, local-first e UI PT-BR/EN nativa |
+| wmux | alternativa Windows mais proxima — tambem tem navegador CDP; Scanline difere em licenca MIT, local-first e UI PT-BR/EN nativa |
 | Warp | IA atrelada a nuvem e centrada no shell; sem painel de navegador dirigido por agente |
 | Wave Terminal | o widget de navegador e somente-leitura pra IA, nao um alvo scriptavel via CDP |
 | Windows Terminal / WezTerm / Tabby | sem hooks de agente, sem navegador scriptavel, sem sidebar de status de PR |
