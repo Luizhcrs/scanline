@@ -138,20 +138,12 @@ body {
   display: flex;
   align-items: center;
   padding: 0 var(--s5);
-  /* drag region is set via data-tauri-drag-region on the element */
-  -webkit-app-region: drag;
-  app-region: drag;
-  /* Leave right side clear for decorum's injected window controls (~138px on Win11) */
+  /* Drag handled via data-tauri-drag-region attribute (Tauri v2 JS handler).
+     Do NOT use -webkit-app-region CSS — it routes mouse events to the OS and
+     swallows clicks on the decorum window-control buttons. */
+  /* Leave right side clear for decorum's injected window controls (~138px) */
   padding-right: 148px;
   position: relative;
-}
-
-/* Buttons inside titlebar must not be draggable */
-#titlebar button,
-#titlebar a,
-#titlebar input {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
 }
 
 #app {
