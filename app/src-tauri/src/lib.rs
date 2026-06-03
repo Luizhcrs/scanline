@@ -1987,6 +1987,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_decorum::init())
         // MUST be the first plugin: a second launch hands its args to this
         // callback (running in the already-live instance) and then exits, so
         // only one Scanline process ever owns the PTYs / control pipe / window.
@@ -2014,7 +2015,10 @@ pub fn run() {
             #[cfg(windows)]
             {
                 if let Some(win) = app.get_webview_window("main") {
-                    apply_dark_titlebar(&win);
+                    use tauri_plugin_decorum::WebviewWindowExt;
+                    if let Err(e) = win.create_overlay_titlebar() {
+                        log_warn!("app", "overlay titlebar failed: {}", e);
+                    }
                 }
                 setup_agent_hooks(app.handle());
             }

@@ -119,12 +119,44 @@
 }
 
 html,
-body,
-#app {
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom titlebar — decorum overlay. Height must match decorum's injected bar
+   so native snap zones and drag region align with our visual titlebar. */
+#titlebar {
+  flex: 0 0 32px;
+  height: 32px;
+  background: var(--bg-sink);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s5);
+  /* drag region is set via data-tauri-drag-region on the element */
+  -webkit-app-region: drag;
+  app-region: drag;
+  z-index: 9999;
+  /* Leave right side clear for decorum's injected window controls (~138px on Win11) */
+  padding-right: 148px;
+}
+
+/* Buttons inside titlebar must not be draggable */
+#titlebar button,
+#titlebar a,
+#titlebar input {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+#app {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 /* No text selection on the chrome (tabs, buttons, bars, sidebar, menus); only
    real text fields keep it. The terminal manages its own selection; the
@@ -143,6 +175,7 @@ textarea {
 #app {
   display: flex;
   flex-direction: row;
+  overflow: hidden;
 }
 #sidebar {
   flex: 0 0 180px;
