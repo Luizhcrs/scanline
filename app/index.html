@@ -30,7 +30,13 @@
   </head>
   <body>
     <div id="splash">scanline</div>
-    <div id="titlebar" data-tauri-drag-region></div>
+    <div id="titlebar" data-tauri-drag-region>
+      <div id="titlebar-controls">
+        <button id="tb-minimize" title="Minimize">&#x2013;</button>
+        <button id="tb-maximize" title="Maximize">&#x25A1;</button>
+        <button id="tb-close" title="Close">&#x2715;</button>
+      </div>
+    </div>
     <div id="app">
       <div id="sidebar"></div>
       <div id="content"></div>

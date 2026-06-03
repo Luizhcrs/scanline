@@ -1461,10 +1461,18 @@ const CAPABILITIES = [
   "system.ping", "system.identify", "system.capabilities",
 ];
 
+function wireTitlebarControls(): void {
+  const win = getCurrentWindow();
+  document.getElementById("tb-minimize")?.addEventListener("click", () => win.minimize());
+  document.getElementById("tb-maximize")?.addEventListener("click", () => win.toggleMaximize());
+  document.getElementById("tb-close")?.addEventListener("click", () => win.close());
+}
+
 function main() {
   const sidebar = document.getElementById("sidebar");
   const content = document.getElementById("content");
   if (!sidebar || !content) return;
+  wireTitlebarControls();
   new App(sidebar, content);
   document.getElementById("splash")?.remove();
 }
