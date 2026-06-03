@@ -141,9 +141,9 @@ body {
   /* drag region is set via data-tauri-drag-region on the element */
   -webkit-app-region: drag;
   app-region: drag;
-  z-index: 9999;
   /* Leave right side clear for decorum's injected window controls (~138px on Win11) */
   padding-right: 148px;
+  position: relative;
 }
 
 /* Buttons inside titlebar must not be draggable */

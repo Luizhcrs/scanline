@@ -2019,6 +2019,9 @@ pub fn run() {
                     if let Err(e) = win.create_overlay_titlebar() {
                         log_warn!("app", "overlay titlebar failed: {}", e);
                     }
+                    // Show after overlay titlebar is set up to avoid the native
+                    // titlebar flash that occurs when the window is visible first.
+                    let _ = win.show();
                 }
                 setup_agent_hooks(app.handle());
             }
