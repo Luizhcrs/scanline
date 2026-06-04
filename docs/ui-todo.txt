@@ -1,8 +1,8 @@
-UI / UX refinements — Scanline
+﻿UI / UX refinements â€” Scanline
 ==============================
 Populado em sessao. Cada item = uma mudanca pequena e cirurgica.
 
-[ ] 1. target="_blank" / window.open em browser pane -> abrir como nova aba (surface)
+[x] 1. target="_blank" / window.open em browser pane -> abrir como nova aba (surface)
         no mesmo pane, nao como split novo ao lado.
         (hoje abre split; quero comportamento de browser nativo: nova aba)
 
@@ -10,7 +10,7 @@ Populado em sessao. Cada item = uma mudanca pequena e cirurgica.
         Causa: WebView2 HWND nativo sempre acima do DOM, sem solucao limpa possivel.
         Fix escolhido: fundo escuro com URL + icone de browser ao esconder.
         backdrop-filter nao funciona: WebView2 ja foi escondido antes do blur aparecer,
-        nao tem conteudo por baixo pra blurrar — resultado seria escuro de qualquer forma.
+        nao tem conteudo por baixo pra blurrar â€” resultado seria escuro de qualquer forma.
         CapturePreview (screenshot antes de esconder) permitiria blur real sobre imagem,
         mas tem latencia ~50-100ms e complexidade Rust.
         Decisao: fundo escuro (#0d1017), centralizado: favicon + titulo da pagina.

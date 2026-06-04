@@ -203,24 +203,24 @@ export class SettingsPanel {
     };
 
     if (this.activeCategory === "appearance") {
-      section("Language");
-      row(t("settings.language"), "UI language. Changing requires a restart.", fields.language);
-      section("Interface font");
-      row(t("settings.uiFont"), "Font used in menus, tabs, and chrome.", fields.uiFont);
+      section("Idioma");
+      row(t("settings.language"), "Idioma da interface. Requer reinício para aplicar.", fields.language);
+      section("Fonte da interface");
+      row(t("settings.uiFont"), "Fonte usada em menus, abas e elementos do app.", fields.uiFont);
       section("Layout");
-      row(t("settings.minimal"), "Hide sidebar and tab bars for a cleaner view.", fields.minimal);
+      row(t("settings.minimal"), "Ocultar barra lateral e abas para uma visão mais limpa.", fields.minimal);
     }
 
     if (this.activeCategory === "terminal") {
-      section("Font");
-      row(t("settings.termFont"), "Monospace font for terminal output.", fields.termFont);
-      row(t("settings.termSize"), "Font size in pixels.", fields.termSize);
+      section("Fonte");
+      row(t("settings.termFont"), "Fonte monoespaçada usada no terminal.", fields.termFont);
+      row(t("settings.termSize"), "Tamanho da fonte em pixels.", fields.termSize);
       section("Buffer");
-      row(t("settings.scrollback"), "Lines of scrollback history per pane.", fields.scrollback);
-      section("Colors");
-      row(t("settings.bg"), "Terminal background color.", fields.bg);
-      row(t("settings.fg"), "Terminal text color.", fields.fg);
-      row(t("settings.cursor"), "Cursor color.", fields.cursor);
+      row(t("settings.scrollback"), "Linhas de histórico de rolagem por painel.", fields.scrollback);
+      section("Cores");
+      row(t("settings.bg"), "Cor de fundo do terminal.", fields.bg);
+      row(t("settings.fg"), "Cor do texto do terminal.", fields.fg);
+      row(t("settings.cursor"), "Cor do cursor.", fields.cursor);
     }
 
     if (this.activeCategory === "shortcuts") {

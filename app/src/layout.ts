@@ -327,6 +327,15 @@ export class Layout {
     pane.onPaneDragStart = () => this.onPaneDragStart?.();
     pane.onPaneDragEnd = () => this.onPaneDragEnd?.();
     pane.onPaneMove = (toId) => this.swapPanes(pane.paneId, toId);
+    pane.onReceiveSurface = (srcId, srcIdx, destIdx) =>
+      this.moveSurfaceBetweenContainers(srcId, srcIdx, pane.paneId, destIdx);
+    pane.onSplitWithSurface = (srcId, srcIdx) =>
+      this.splitWithMovedSurface(srcId, srcIdx, pane);
+    pane.onTabMovedTo = (srcSurfaceIdx, destContainerId, toStrip) =>
+      toStrip
+        ? this.moveSurfaceBetweenContainers(pane.paneId, srcSurfaceIdx, destContainerId, 999)
+        : this.splitWithMovedSurface(pane.paneId, srcSurfaceIdx,
+            this.collectPanes(this.root).find(p => p.paneId === destContainerId) ?? pane);
     pane.keyHandler = this.keyHandler;
   }
 
@@ -586,5 +595,34 @@ export class Layout {
       this.collectPanes(node.b, out);
     }
     return out;
+  }
+
+  /** Move a surface tab from one PaneContainer to another. */
+  moveSurfaceBetweenContainers(srcId: number, srcIdx: number, destId: number, destIdx: number): void {
+    const panes = this.collectPanes(this.root);
+    const src = panes.find(p => p.paneId === srcId) as import("./paneContainer").PaneContainer | undefined;
+    const dest = panes.find(p => p.paneId === destId) as import("./paneContainer").PaneContainer | undefined;
+    if (!src || !dest || src === dest) return;
+    const surface = src.allSurfaces?.[srcIdx];
+    if (!surface) return;
+    src.removeSurfaceAt(srcIdx);
+    dest.insertSurfaceAt(surface, destIdx);
+  }
+
+  /** Split the focused pane, placing a surface from another container in a new pane. */
+  splitWithMovedSurface(srcId: number, srcIdx: number, destPane: PaneLike): void {
+    const panes = this.collectPanes(this.root);
+    const src = panes.find(p => p.paneId === srcId) as import("./paneContainer").PaneContainer | undefined;
+    if (!src) return;
+    const surface = src.allSurfaces?.[srcIdx];
+    if (!surface) return;
+    src.removeSurfaceAt(srcIdx);
+    if (!this.paneFactory) return;
+    const newContainer = this.paneFactory() as import("./paneContainer").PaneContainer;
+    // Insert the moved surface into the new container at position 0,
+    // replacing the placeholder the factory created.
+    newContainer.insertSurfaceAt(surface, 0);
+    this.setFocus(destPane);
+    this.splitFocused(newContainer);
   }
 }

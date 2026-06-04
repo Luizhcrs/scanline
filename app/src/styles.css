@@ -173,7 +173,9 @@ body {
 #titlebar-controls #tb-settings svg {
   width: 14px;
   height: 14px;
+  stroke: currentColor;
   stroke-width: 1.5;
+  fill: none;
 }
 #titlebar-actions button {
   width: 28px;
@@ -523,6 +525,29 @@ textarea {
   min-height: 0;
   display: flex;
   position: relative;
+  transition: box-shadow var(--t-fast);
+}
+.surface-body.drop-target {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.surface-strip.drop-target {
+  background: var(--accent-bg);
+}
+.dragging-tab * {
+  cursor: grabbing !important;
+}
+.tab-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 3px 10px;
+  font: 11px var(--ui-font);
+  color: var(--text);
+  box-shadow: var(--shadow-popover);
+  opacity: 0.9;
 }
 .surface-body > .pane {
   border-color: transparent !important;
@@ -629,7 +654,9 @@ textarea {
 .pane-action-btn svg {
   width: 12px;
   height: 12px;
+  stroke: currentColor;
   stroke-width: 1.5;
+  fill: none;
 }
 
 /* A terminal pane. */
@@ -858,7 +885,9 @@ body.minimal .surface-tabs {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+  stroke: currentColor;
   stroke-width: 1.5;
+  fill: none;
   opacity: 0.8;
 }
 /* Content area */
@@ -1166,6 +1195,33 @@ body.minimal .surface-tabs {
   flex-direction: column;
   padding: 0;
 }
+/* Loading bar — thin accent line at top of browser pane */
+.browser-loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 10;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+.browser-loading-bar.active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 60%;
+  height: 100%;
+  background: var(--accent);
+  animation: browser-load 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes browser-load {
+  0%   { left: -60%; }
+  100% { left: 120%; }
+}
+
 .browser-bar {
   display: flex;
   gap: 4px;
@@ -1212,6 +1268,33 @@ body.minimal .surface-tabs {
   width: 100%;
   min-height: 0;
   background: var(--bg);
+  position: relative;
+}
+.browser-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bg);
+  pointer-events: none;
+}
+.browser-placeholder-favicon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.5;
+  border-radius: 4px;
+}
+.browser-placeholder-title {
+  font: 12px var(--ui-font);
+  color: var(--text-faint);
+  max-width: 80%;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Command palette + switcher overlay. */

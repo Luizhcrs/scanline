@@ -52,10 +52,16 @@ export interface PaneLike {
   onSplitRight?: (pane: PaneLike) => void;
   onSplitDown?: (pane: PaneLike) => void;
   onNewBrowserTab?: (pane: PaneLike) => void;
+  onReceiveSurface?: (srcContainerId: number, srcIdx: number, destIdx: number) => void;
+  onSplitWithSurface?: (srcContainerId: number, srcIdx: number) => void;
+  /** Called by the SOURCE container when a tab is dragged to a destination. */
+  onTabMovedTo?: (srcSurfaceIdx: number, destContainerId: number, toStrip: boolean) => void;
   /** Fired on a notification escape sequence / bell (terminal panes). */
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   /** Fired when a link in the terminal is Ctrl+clicked (open as a browser pane). */
   onOpenUrl?: (pane: PaneLike, url: string) => void;
+  /** Fired when browser pane requests new window (target=_blank) → open as surface tab. */
+  onNewWindow?: (pane: PaneLike, url: string) => void;
   /** Pane drag-to-reposition: start/end (toggle browser-webview hiding) and drop
    *  (swap this pane with the dragged paneId). */
   onPaneDragStart?: () => void;
