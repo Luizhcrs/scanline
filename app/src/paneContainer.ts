@@ -1,5 +1,6 @@
 import { type PaneLike, nextPaneId } from "./types";
 import { t } from "./i18n";
+import { createIcons, SquareTerminal, Globe, PanelRight, PanelBottom } from "lucide";
 
 /**
  * A grid leaf that holds multiple surfaces (terminals/browsers) as tabs. Only
@@ -28,6 +29,9 @@ export class PaneContainer implements PaneLike {
   onFocusRequest?: (pane: PaneLike) => void;
   onCloseRequest?: (pane: PaneLike) => void;
   onSplitRequest?: (pane: PaneLike) => void;
+  onSplitRight?: (pane: PaneLike) => void;
+  onSplitDown?: (pane: PaneLike) => void;
+  onNewBrowserTab?: (pane: PaneLike) => void;
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   onOpenUrl?: (pane: PaneLike, url: string) => void;
   onPaneDragStart?: () => void;
@@ -341,16 +345,14 @@ export class PaneContainer implements PaneLike {
         if (!Number.isNaN(from)) this.reorder(from, i);
       };
       tab.append(label);
-      if (this.surfaces.length > 1) {
-        const x = document.createElement("button");
-        x.className = "surface-tab-close";
-        x.textContent = "✕";
-        x.onclick = (e) => {
-          e.stopPropagation();
-          this.closeSurface(s);
-        };
-        tab.append(x);
-      }
+      const x = document.createElement("button");
+      x.className = "surface-tab-close";
+      x.textContent = "✕";
+      x.onclick = (e) => {
+        e.stopPropagation();
+        this.closeSurface(s);
+      };
+      tab.append(x);
       return tab;
     });
     const add = document.createElement("button");
@@ -366,7 +368,23 @@ export class PaneContainer implements PaneLike {
     grip.onpointerdown = (e) => {
       if (e.button === 0) this.startPaneDrag(grip, e);
     };
-    this.strip.replaceChildren(grip, ...tabs, add);
+    // Right-side pane action buttons
+    const mkPaneBtn = (icon: string, title: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.className = "pane-action-btn";
+      b.title = title;
+      b.innerHTML = `<i data-lucide="${icon}"></i>`;
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      return b;
+    };
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    const btnTerm    = mkPaneBtn("square-terminal", "New terminal tab",  () => this.newTerminalTab());
+    const btnBrowser = mkPaneBtn("globe",           "New browser tab",   () => this.onNewBrowserTab?.(this));
+    const btnRight   = mkPaneBtn("panel-right",     "Split right",       () => this.onSplitRight?.(this));
+    const btnDown    = mkPaneBtn("panel-bottom",    "Split down",        () => this.onSplitDown?.(this));
+    this.strip.replaceChildren(grip, ...tabs, add, spacer, btnTerm, btnBrowser, btnRight, btnDown);
+    createIcons({ icons: { SquareTerminal, Globe, PanelRight, PanelBottom } });
   }
 
   /** Start inline rename of the active tab (context menu / shortcut). */

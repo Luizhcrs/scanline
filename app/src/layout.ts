@@ -311,6 +311,19 @@ export class Layout {
       this.setFocus(p);
       this.splitFocused(this.browserFactory(url));
     };
+    pane.onSplitRight = (p) => {
+      this.setFocus(p);
+      this.splitWithNew("row");
+    };
+    pane.onSplitDown = (p) => {
+      this.setFocus(p);
+      this.splitWithNew("col");
+    };
+    pane.onNewBrowserTab = (p) => {
+      if (!this.browserFactory) return;
+      this.setFocus(p);
+      this.splitFocused(this.browserFactory(""));
+    };
     pane.onPaneDragStart = () => this.onPaneDragStart?.();
     pane.onPaneDragEnd = () => this.onPaneDragEnd?.();
     pane.onPaneMove = (toId) => this.swapPanes(pane.paneId, toId);

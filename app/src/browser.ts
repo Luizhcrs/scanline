@@ -103,13 +103,12 @@ export class BrowserPane implements PaneLike {
     });
 
     // Pane controls — always clickable (DOM), independent of webview focus.
-    const split = mkBtn("⊟", "Split a terminal beside this", () =>
-      this.onSplitRequest?.(this),
+    const devtools = mkBtn("⚙", "Open DevTools", () =>
+      invoke("browser_devtools", { id: this.paneId }).catch(() => {}),
     );
-    const close = mkBtn("✕", "Close pane", () => this.onCloseRequest?.(this));
-    close.classList.add("close");
+    devtools.classList.add("browser-devtools-btn");
 
-    bar.append(back, fwd, reload, this.urlInput, split, close);
+    bar.append(back, fwd, reload, this.urlInput, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";

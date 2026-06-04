@@ -1,0 +1,40 @@
+UI / UX refinements — Scanline
+==============================
+Populado em sessao. Cada item = uma mudanca pequena e cirurgica.
+
+[ ] 1. target="_blank" / window.open em browser pane -> abrir como nova aba (surface)
+        no mesmo pane, nao como split novo ao lado.
+        (hoje abre split; quero comportamento de browser nativo: nova aba)
+
+[ ] 2. Browser panes ficam em branco quando context menu / overlay abre.
+        Causa: WebView2 HWND nativo sempre acima do DOM, sem solucao limpa possivel.
+        Fix escolhido: fundo escuro com URL + icone de browser ao esconder.
+        backdrop-filter nao funciona: WebView2 ja foi escondido antes do blur aparecer,
+        nao tem conteudo por baixo pra blurrar — resultado seria escuro de qualquer forma.
+        CapturePreview (screenshot antes de esconder) permitiria blur real sobre imagem,
+        mas tem latencia ~50-100ms e complexidade Rust.
+        Decisao: fundo escuro (#0d1017), centralizado: favicon + titulo da pagina.
+        - Favicon: <img src="https://www.google.com/s2/favicons?domain=<host>&sz=32">
+          (URL publica Google, zero fetch proprio, so extrai host do pendingUrl)
+        - Titulo: this._title (ja trackeado no BrowserPane)
+        - Aparece ao setVisible(false), some ao setVisible(true)
+        Complexidade: baixa (CSS + ~10 linhas JS no BrowserPane).
+
+[ ] 3. Drag de surface (aba) para pane separado.
+        Hoje: so da pra mover panes inteiros (drag do grip do container).
+        Quero: arrastar uma aba individual de um PaneContainer para outro,
+        ou soltar em area vazia para criar split novo com aquela aba.
+        Complexidade: alta (requer hit-test entre containers, reordenar surfaces
+        entre PaneContainers distintos, preservar PTY/browser vivo durante move).
+
+[ ] 5. Titlebar customizada com tauri-plugin-decorum.
+        Plugin preserva snap layout Win11 (WM_NCHITTEST) enquanto permite HTML livre na titlebar.
+        Conteudo da barra: A DEFINIR em conversa separada.
+        Complexidade: media (adicionar dep Rust + configurar + desenhar barra em HTML/CSS).
+        REGRA: definir conteudo antes de codar.
+
+[ ] 4. Indicador de carregamento no browser pane.
+        Quando pagina esta carregando nao ha feedback visual nenhum.
+        Ideia: spinner ou barra de progresso na toolbar do pane enquanto navega.
+        (WebView2 tem evento ContentLoading / NavigationCompleted via CDP ou on_navigation)
+

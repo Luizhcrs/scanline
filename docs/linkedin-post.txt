@@ -1,0 +1,75 @@
+SCANLINE - POST LINKEDIN (rascunho v.J)
+========================================
+Edite a vontade. Link vai no PRIMEIRO COMENTARIO, nao no corpo (LinkedIn rebaixa post com link de saida).
+
+----------------------------------------
+TEXTO DO POST
+----------------------------------------
+
+Minha barra de tarefas vivia cheia de terminais. Um cmd aqui, tres PowerShell ali, cada terminal numa janela solta ou ate em abas, alt-tab sem fim pra achar qual era qual. Pior agora, com os agente de ia para cada agente um terminal.
+
+Eu queria comandar varios agentes ao mesmo tempo sem virar refem do alt-tab. Tipo um tmux ou o cmux do mac, mas pro Windows. Procurei: quase nada existe, e o que existe nao fazia o que eu precisava. montei o meu e Chamei de Scanline.
+
+Uma janela. Dentro dela, varios agentes rodando lado a lado, cada um no sua atividade, todos no meu campo de visao. Vejo qual ta trabalhando, qual parou, qual precisa de mim - de relance, sem buscar janelas.
+
+Roda o que eu precisar em cada painel: Claude Code, Codex, Gemini CLI, Antigravity. E do lado dos terminais, um navegador. Essa parte mudou tudo: o agente escreve o codigo, sobe o servidor, abre o proprio app no painel ao lado, tira print, clica, preenche, ve se quebrou. Testa o que ele mesmo escreveu, sem ninguem no mouse.
+
+Roda nativo. Sem WSL, sem tmux, sem Chromium embutido. Usa o WebView2 que ja vem no Windows. O codigo nao sai da maquina.
+
+Hoje a integracao mais funda e com o Claude Code - os hooks acendem o status de cada painel e avisam quando o agente para ou precisa de algo. Os outros rodam liso como CLI normal.
+
+Fiz a noite, pra mim. Botei no GitHub.
+
+v0.1. Cru, mas ja uso todo dia. :)
+
+Link no comentario.
+
+#windows #opensource #ia #devtools
+
+
+----------------------------------------
+PRIMEIRO COMENTARIO (colar depois de postar)
+----------------------------------------
+
+Repo + download: github.com/Luizhcrs/scanline
+
+
+----------------------------------------
+NOTAS
+----------------------------------------
+- Tese central: gerenciar varios agentes ao mesmo tempo numa janela so.
+- Hook (1a linha) = dor da bagunca de cmd/PowerShell + alt-tab. Aparece antes do corte "ver mais".
+- Honesto: hooks = Claude Code hoje; outros CLIs rodam como terminal normal.
+- Sem citar Sidi. "Fiz a noite, pra mim" separa do trabalho.
+- Acentos removidos do arquivo pra evitar encoding. Reponha ao colar no LinkedIn (refem, visao, codigo, integracao etc).
+- Visual: post com video/GIF pega 2-3x mais alcance. Roteiro do demo quando voce quiser.
+
+
+========================================
+VERSAO 2 (v.K) - baseada na sua, lapidada
+========================================
+Sua versao acima fica intacta. Esta e uma alternativa: mesma voz e mesmas ideias suas, so com a gramatica ajustada e o "open-source" de volta. Compare e escolha (ou misture).
+
+----------------------------------------
+TEXTO DO POST
+----------------------------------------
+
+Minha barra de tarefas vivia cheia de terminais. Um cmd aqui, tres PowerShell ali, cada um numa janela solta ou em abas, alt-tab sem fim pra achar qual era qual. Pior agora com os agentes de IA: cada agente, mais um terminal aberto.
+
+Eu queria comandar varios agentes ao mesmo tempo sem virar refem do alt-tab. Tipo um tmux, ou o cmux do Mac, mas pro Windows. Procurei: quase nada existe, e o que existe nao fazia o que eu precisava. Montei o meu e chamei de Scanline.
+
+Uma janela. Dentro dela, varios agentes rodando lado a lado, cada um na sua atividade, todos no meu campo de visao. Vejo qual ta trabalhando, qual parou, qual precisa de mim - de relance, sem buscar janela.
+
+Roda o que eu precisar em cada painel: Claude Code, Codex, Gemini CLI, Antigravity. E do lado dos terminais, um navegador. Essa parte mudou tudo: o agente escreve o codigo, sobe o servidor, abre o proprio app no painel ao lado, tira print, clica, preenche, ve se quebrou. Testa o que ele mesmo escreveu, sem ninguem no mouse.
+
+Roda nativo. Sem WSL, sem tmux, sem Chromium embutido. Usa o WebView2 que ja vem no Windows. O codigo nao sai da maquina.
+
+Hoje a integracao mais funda e com o Claude Code - os hooks acendem o status de cada painel e avisam quando o agente para ou precisa de algo. Os outros rodam liso como CLI normal.
+
+Fiz a noite, pra mim. Botei open-source no GitHub.
+
+v0.1. Cru, mas ja uso todo dia. :)
+
+Link no comentario.
+
+#windows #opensource #ia #devtools

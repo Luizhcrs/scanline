@@ -49,6 +49,9 @@ export interface PaneLike {
   onCloseRequest?: (pane: PaneLike) => void;
   /** Fired when the pane's split button is clicked. */
   onSplitRequest?: (pane: PaneLike) => void;
+  onSplitRight?: (pane: PaneLike) => void;
+  onSplitDown?: (pane: PaneLike) => void;
+  onNewBrowserTab?: (pane: PaneLike) => void;
   /** Fired on a notification escape sequence / bell (terminal panes). */
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   /** Fired when a link in the terminal is Ctrl+clicked (open as a browser pane). */

@@ -4,15 +4,15 @@
      Terminal content keeps its own xterm font/colors. */
 
   /* --- Surfaces (darkest sink -> elevated overlay) --- */
-  --bg: #0d1017;          /* app background, active tab, palette/find/browser inputs */
-  --bg-sink: #0a0d13;     /* darkest: sidebar, surface-tabs strip, settings inputs */
-  --bg-elev: #11151f;     /* elevated floating surface: ALL overlays + cards + tabs */
-  --bg-elev2: #161b26;    /* secondary elevation: row hover / subtle dividers */
+  --bg: #141414;          /* app background, active tab, palette/find/browser inputs */
+  --bg-sink: #0f0f0f;     /* darkest: sidebar, surface-tabs strip, settings inputs */
+  --bg-elev: #1e1e1e;     /* elevated floating surface: ALL overlays + cards + tabs */
+  --bg-elev2: #242424;    /* secondary elevation: row hover / subtle dividers */
 
   /* --- Borders --- */
-  --border: #1c2230;           /* default 1px borders */
-  --border-strong: #2d3650;    /* stronger borders, hover bg, separators, scrollbar thumb */
-  --border-strongest: #3a455f; /* scrollbar thumb hover only */
+  --border: #2a2a2a;           /* default 1px borders */
+  --border-strong: #383838;    /* stronger borders, hover bg, separators, scrollbar thumb */
+  --border-strongest: #484848; /* scrollbar thumb hover only */
   --gutter: var(--border);           /* semantic alias kept for split dividers */
   --gutter-hover: var(--border-strong);
 
@@ -118,6 +118,15 @@
   outline-offset: 1px;
 }
 
+/* ── Micro-feedback: botões dão senso de clique físico ───────────── */
+button:active {
+  transform: scale(0.94);
+}
+/* Não aplica scale nos botões de janela (min/max/close) nem nos de drag */
+#tb-minimize:active, #tb-maximize:active, #tb-close:active {
+  transform: none;
+}
+
 html,
 body {
   width: 100%;
@@ -134,14 +143,85 @@ body {
   flex: 0 0 32px;
   height: 32px;
   background: var(--bg-sink);
-  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  position: relative;
+}
+/* Border only over the content area (not over the sidebar) */
+#titlebar::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 180px; /* sidebar width */
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Action buttons — left side of titlebar, starting after sidebar */
+#titlebar-actions {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  padding: 0 var(--s2);
+  gap: 2px;
+  width: 180px; /* same width as sidebar */
+  flex-shrink: 0;
+}
+#titlebar-actions svg,
+#titlebar-controls #tb-settings svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+}
+#titlebar-actions button {
+  width: 28px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  padding: 0 var(--s5);
-  /* Drag handled via data-tauri-drag-region attribute (Tauri v2 JS handler).
-     Do NOT use -webkit-app-region CSS — it routes mouse events to the OS and
-     swallows clicks on the decorum window-control buttons. */
-  position: relative;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  transition: color var(--t-fast);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+#titlebar-actions button:hover {
+  color: var(--text);
+}
+.tb-spacer {
+  flex: 1;
+}
+
+/* Logo + name — left side of titlebar */
+#titlebar-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  height: 100%;
+  flex-shrink: 0;
+}
+#titlebar-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  opacity: 0.85;
+}
+#titlebar-name {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: 600 12px/1 var(--ui-font);
+  color: var(--text-soft);
+  letter-spacing: 0.02em;
+  user-select: none;
+  pointer-events: none;
 }
 
 /* Window control buttons — right side of titlebar */
@@ -171,9 +251,25 @@ body {
   background: var(--bg-elev2);
   color: var(--text);
 }
+/* Settings: só cor, sem fundo */
+#titlebar-controls #tb-settings:hover {
+  background: transparent;
+}
+#titlebar-controls #tb-settings {
+  transition: color var(--t-fast);
+}
+#titlebar-controls #tb-minimize,
+#titlebar-controls #tb-maximize,
+#titlebar-controls #tb-close {
+  cursor: default;
+}
 #tb-close:hover {
   background: #c0392b !important;
   color: #fff !important;
+  border-radius: 0;
+}
+#titlebar-controls button:last-child {
+  border-radius: 0;
 }
 
 #app {
@@ -208,6 +304,17 @@ textarea {
   background: var(--bg-sink);
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  transition: flex-basis 0.14s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.14s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.14s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#sidebar.hidden {
+  flex: 0 0 0;
+  opacity: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-right-color: transparent;
 }
 #content {
   position: relative;
@@ -234,6 +341,7 @@ textarea {
   font: 12px/1.2 var(--ui-font);
   cursor: pointer;
   user-select: none;
+  transition: background var(--t-fast), color var(--t-fast);
 }
 .ws-top {
   display: flex;
@@ -442,6 +550,7 @@ textarea {
   font: 11px/1 var(--ui-font);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
 }
 .surface-tab.active {
   background: var(--bg);
@@ -500,6 +609,29 @@ textarea {
   color: var(--text);
 }
 
+/* Pane action buttons (right side of tab strip) */
+.pane-action-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--t-fast);
+}
+.pane-action-btn:hover {
+  color: var(--text-soft);
+}
+.pane-action-btn svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.5;
+}
+
 /* A terminal pane. */
 .pane {
   flex: 1 1 auto;
@@ -524,10 +656,10 @@ textarea {
 
 /* Notifications panel (Alt+Shift+N). */
 .notif-panel {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: fixed;
   width: 320px;
+  transform-origin: top left;
+  animation: notif-pop 0.12s var(--ease);
   max-height: 60vh;
   display: flex;
   flex-direction: column;
@@ -538,6 +670,37 @@ textarea {
   font: 12px var(--ui-font);
   color: var(--text);
   box-shadow: var(--shadow-popover);
+}
+/* ── Animações de overlay ─────────────────────────────────────────── */
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes overlay-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes modal-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.95); }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.92); }
+  65%  { opacity: 1; transform: scale(1.025); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes notif-pop {
+  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 .notif-panel-header {
   display: flex;
@@ -589,6 +752,7 @@ body.minimal .surface-tabs {
 }
 
 /* Settings window (Ctrl+,). */
+/* ── Settings modal ─────────────────────────────────────────────── */
 .settings-overlay {
   position: absolute;
   inset: 0;
@@ -597,94 +761,239 @@ body.minimal .surface-tabs {
   align-items: center;
   justify-content: center;
   background: var(--scrim);
+  animation: overlay-in var(--t-enter) var(--ease);
+}
+.settings-overlay.closing {
+  animation: overlay-out 0.18s var(--ease) forwards;
+}
+.settings-overlay.closing .settings-card {
+  animation: modal-out 0.18s var(--ease) forwards;
 }
 .settings-card {
-  width: 480px;
-  max-width: 90vw;
-  max-height: 86vh;
-  overflow-y: auto;
-  padding: 18px 20px;
+  width: 660px;
+  max-width: 92vw;
+  height: 480px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-modal);
   font: 13px var(--ui-font);
   color: var(--text);
+  overflow: hidden;
 }
-.settings-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
-.settings-row {
+/* Header */
+.settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  padding: 16px 20px 14px;
+  flex-shrink: 0;
 }
-.settings-label {
+.settings-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.settings-close-btn:hover {
+  background: var(--bg-elev2);
+  color: var(--text);
+}
+/* Body */
+.settings-body {
+  display: flex;
   flex: 1 1 auto;
-  color: var(--text-soft);
+  min-height: 0;
 }
+/* Sidebar nav */
+.settings-sidebar {
+  width: 156px;
+  flex-shrink: 0;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-elev);
+}
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font: 12px var(--ui-font);
+  text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.settings-nav-item:hover {
+  background: var(--bg-elev2);
+  color: var(--text);
+}
+.settings-nav-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 500;
+}
+.settings-nav-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+/* Content area */
+.settings-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 16px 0 8px;
+}
+.settings-section-title:first-child {
+  margin-top: 0;
+}
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+.settings-field-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-field-label {
+  font-size: 13px;
+  color: var(--text);
+}
+.settings-field-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+/* Inputs */
 .settings-input {
-  flex: 0 0 220px;
+  flex-shrink: 0;
+  width: 180px;
   background: var(--bg-sink);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   padding: 5px 8px;
-  font: inherit;
+  font: 12px var(--ui-font);
   outline: none;
 }
 .settings-input:focus {
   border-color: var(--accent);
 }
 .settings-color {
-  flex: 0 0 44px;
-  height: 26px;
+  flex-shrink: 0;
+  width: 44px;
+  height: 28px;
   background: var(--bg-sink);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   cursor: pointer;
+  padding: 2px;
 }
 .settings-check {
-  flex: 0 0 auto;
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
   cursor: pointer;
+  accent-color: var(--accent);
 }
-.settings-btns {
+/* Footer */
+.settings-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 18px;
+  padding: 12px 20px;
+  flex-shrink: 0;
+}
+.settings-footer .settings-btn.ghost {
+  margin-right: auto;
 }
 .settings-btn {
-  background: var(--border);
+  background: var(--bg-elev2);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  padding: 6px 16px;
-  font: inherit;
+  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  font: 12px var(--ui-font);
   cursor: pointer;
+  transition: background var(--t-fast);
 }
 .settings-btn:hover {
   background: var(--border-strong);
 }
 .settings-btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: transparent;
   color: var(--on-accent);
   font-weight: 600;
 }
 .settings-btn.primary:hover {
   background: var(--accent-hover);
 }
+.settings-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+.settings-btn.ghost:hover {
+  color: var(--text);
+  background: var(--bg-elev2);
+}
+.settings-kbd {
+  flex-shrink: 0;
+  font: 11px/1 var(--ui-font);
+  background: var(--bg-elev2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  padding: 2px 6px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
 
 /* Keyboard-shortcut cheat sheet (Ctrl+/). */
 .help-card {
   width: 560px;
+  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .help-section {
   margin: 14px 0 6px;
@@ -724,6 +1033,7 @@ body.minimal .surface-tabs {
   font: 13px var(--ui-font);
   color: var(--text);
   user-select: none;
+  animation: menu-in 0.12s var(--ease);
 }
 .context-item {
   display: flex;
@@ -914,6 +1224,13 @@ body.minimal .surface-tabs {
   padding-top: 12vh;
   background: var(--scrim);
   z-index: var(--z-modal);
+  animation: overlay-in var(--t-enter) var(--ease);
+}
+.palette-overlay.closing {
+  animation: overlay-out 0.15s var(--ease) forwards;
+}
+.palette-overlay.closing .palette-box {
+  animation: modal-out 0.15s var(--ease) forwards;
 }
 .palette-box {
   width: 560px;
@@ -925,6 +1242,7 @@ body.minimal .surface-tabs {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: var(--shadow-modal);
+  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   overflow: hidden;
 }
 .palette-input {
@@ -961,6 +1279,7 @@ body.minimal .surface-tabs {
 .find-bar {
   position: fixed;
   top: 38px;
+  animation: panel-in 0.13s var(--ease);
   right: 14px;
   display: flex;
   gap: 4px;

@@ -1,4 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { createIcons, PanelLeft, Plus, Bell, Settings } from "lucide";
+
+// Replace data-lucide attributes with actual SVGs (titlebar icons).
+function initIcons(): void {
+  createIcons({ icons: { PanelLeft, Plus, Bell, Settings } });
+}
 import { listen } from "@tauri-apps/api/event";
 import { Pane } from "./pane";
 import { BrowserPane } from "./browser";
@@ -698,10 +704,18 @@ class App {
     }
   }
 
+  toggleNotifications(): void {
+    this.notifs.togglePanel();
+  }
+
+  openSettings(): void {
+    this.settings.open();
+  }
+
   // ---- sidebar ----
   toggleSidebar(): void {
     this.sidebarVisible = !this.sidebarVisible;
-    this.sidebar.style.display = this.sidebarVisible ? "" : "none";
+    this.sidebar.classList.toggle("hidden", !this.sidebarVisible);
   }
 
   private renderSidebar(): void {
@@ -1468,12 +1482,37 @@ function wireTitlebarControls(): void {
   document.getElementById("tb-close")?.addEventListener("click", () => win.close());
 }
 
+function wireTitlebarActions(app: App): void {
+  document.getElementById("tb-sidebar-toggle")?.addEventListener("click", () => app.toggleSidebar());
+  document.getElementById("tb-new-workspace")?.addEventListener("click", () => app.newWorkspace());
+  document.getElementById("tb-settings")?.addEventListener("click", () => app.openSettings());
+  document.getElementById("tb-notifications")?.addEventListener("click", (e) => {
+    const btn = e.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    const panel = document.querySelector(".notif-panel") as HTMLElement | null;
+    if (panel) {
+      panel.style.top = `${rect.bottom + 4}px`;
+      panel.style.left = `${rect.left}px`;
+    }
+    app.toggleNotifications();
+    requestAnimationFrame(() => {
+      const p = document.querySelector(".notif-panel") as HTMLElement | null;
+      if (p && p.style.display !== "none") {
+        p.style.top = `${rect.bottom + 4}px`;
+        p.style.left = `${rect.left}px`;
+      }
+    });
+  });
+}
+
 function main() {
   const sidebar = document.getElementById("sidebar");
   const content = document.getElementById("content");
   if (!sidebar || !content) return;
+  initIcons();
   wireTitlebarControls();
-  new App(sidebar, content);
+  const app = new App(sidebar, content);
+  wireTitlebarActions(app);
   document.getElementById("splash")?.remove();
 }
 
