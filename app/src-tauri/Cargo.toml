@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "app"
 version = "1.0.0"
 description = "Windows-native terminal multiplexer + scriptable browser for AI coding agents"
