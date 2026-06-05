@@ -226,6 +226,22 @@ body {
   pointer-events: none;
 }
 
+/* Custom tooltip */
+.app-tooltip {
+  position: fixed;
+  z-index: 99999;
+  pointer-events: none;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  padding: 3px 8px;
+  font: 11px var(--ui-font);
+  color: var(--text-soft);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  white-space: nowrap;
+  animation: panel-in 0.1s var(--ease);
+}
+
 /* Window control buttons — right side of titlebar */
 #titlebar-controls {
   display: flex;
@@ -560,7 +576,9 @@ textarea {
   padding: 3px 3px 0;
   background: var(--bg-sink);
   overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
 }
+.surface-tabs::-webkit-scrollbar { display: none; } /* Chrome/WebView2 */
 .surface-tab {
   display: flex;
   align-items: center;
@@ -796,6 +814,11 @@ body.minimal .surface-tabs {
 .settings-overlay.closing .settings-card {
   animation: modal-out 0.18s var(--ease) forwards;
 }
+.settings-card, .notif-panel, .context-menu, .help-card, .feed-card {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.settings-input { user-select: text; -webkit-user-select: text; }
 .settings-card {
   width: 660px;
   max-width: 92vw;
@@ -948,6 +971,61 @@ body.minimal .surface-tabs {
 .settings-input:focus {
   border-color: var(--accent);
 }
+/* Hide native number spinners */
+.settings-input[type="number"]::-webkit-inner-spin-button,
+.settings-input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+.settings-input[type="number"] { -moz-appearance: textfield; }
+/* Custom dropdown — fully DOM-based, no native select */
+.settings-dropdown {
+  position: relative;
+  flex-shrink: 0;
+  width: 180px;
+}
+.settings-dropdown-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: var(--bg-sink);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+  font: 12px var(--ui-font);
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+}
+.settings-dropdown-btn:focus { outline: none; border-color: var(--accent); }
+.settings-dropdown-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-dropdown-arrow { color: var(--text-dim); flex-shrink: 0; display: flex; align-items: center; }
+.settings-dropdown-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-popover);
+  z-index: var(--z-modal);
+  overflow: hidden;
+  animation: menu-in 0.1s var(--ease);
+}
+.settings-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--text-soft);
+  border: none;
+  font: 12px var(--ui-font);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast);
+}
+.settings-dropdown-item:hover { background: var(--bg-elev2); color: var(--text); }
+.settings-dropdown-item.selected { color: var(--accent); font-weight: 500; }
 .settings-color {
   flex-shrink: 0;
   width: 44px;
@@ -1017,6 +1095,61 @@ body.minimal .surface-tabs {
   padding: 2px 6px;
   color: var(--text-soft);
   white-space: nowrap;
+}
+
+/* About section */
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 0 24px;
+}
+.settings-about-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin-bottom: 4px;
+}
+.settings-about-name {
+  font: 700 18px/1 var(--ui-font);
+  color: var(--text);
+  letter-spacing: 0.5px;
+}
+.settings-about-version {
+  font: 500 12px/1 var(--ui-font);
+  color: var(--accent);
+}
+.settings-about-tagline {
+  font: 400 12px/1.4 var(--ui-font);
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 280px;
+  margin-top: 4px;
+}
+.settings-about-links {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 12px 0 4px;
+  flex-wrap: wrap;
+}
+.settings-about-link {
+  font: 12px/1 var(--ui-font);
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0.85;
+  transition: opacity var(--t-fast);
+}
+.settings-about-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.settings-about-copy {
+  font: 11px/1 var(--ui-font);
+  color: var(--text-dim);
+  opacity: 0.6;
+  padding-top: 4px;
 }
 
 /* Keyboard-shortcut cheat sheet (Ctrl+/). */
@@ -1258,6 +1391,11 @@ body.minimal .surface-tabs {
 .browser-url:focus {
   border-color: rgb(var(--accent-rgb) / 0.4);
 }
+.browser-theme-btn {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.browser-theme-btn:hover { opacity: 1; }
 .browser-bar button.close:hover {
   background: var(--danger);
   color: var(--on-danger);
