@@ -113,12 +113,35 @@ export class BrowserPane implements PaneLike {
     });
 
     // Pane controls — always clickable (DOM), independent of webview focus.
-    const devtools = mkBtn("⚙", "Open DevTools", () =>
+    const devtools = mkBtn("⚙", t("browser.devtools"), () =>
       invoke("browser_devtools", { id: this.paneId }).catch(() => {}),
     );
     devtools.classList.add("browser-devtools-btn");
 
-    bar.append(back, fwd, reload, this.urlInput, devtools);
+    // Theme toggle: cycles Auto → Dark → Light → Auto via CDP Emulation.setEmulatedMedia.
+    type Theme = "auto" | "dark" | "light";
+    let theme: Theme = "auto";
+    const themeBtn = document.createElement("button");
+    themeBtn.className = "browser-bar-btn browser-theme-btn";
+    const updateThemeBtn = () => {
+      const next: Theme = theme === "auto" ? "dark" : theme === "dark" ? "light" : "auto";
+      themeBtn.title = t(next === "auto" ? "browser.themeAuto" : next === "dark" ? "browser.themeDark" : "browser.themeLight");
+      themeBtn.textContent = theme === "dark" ? "☾" : theme === "light" ? "☀" : "◑";
+    };
+    updateThemeBtn();
+    themeBtn.onclick = (e) => {
+      e.stopPropagation();
+      theme = theme === "auto" ? "dark" : theme === "dark" ? "light" : "auto";
+      updateThemeBtn();
+      const value = theme === "auto" ? "" : theme;
+      invoke("browser_cdp", {
+        id: this.paneId,
+        method: "Emulation.setEmulatedMedia",
+        params: JSON.stringify({ features: [{ name: "prefers-color-scheme", value }] }),
+      }).catch(() => {});
+    };
+
+    bar.append(back, fwd, reload, this.urlInput, themeBtn, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";
@@ -403,7 +426,10 @@ export class BrowserPane implements PaneLike {
     // Kind label
     const kindLabel = document.createElement("div");
     kindLabel.textContent =
-      kind === "beforeunload" ? t("browser.dlgLeaveTitle") : kind.charAt(0).toUpperCase() + kind.slice(1);
+      kind === "beforeunload" ? t("browser.dlgLeaveTitle")
+        : kind === "alert"   ? t("browser.dlgAlert")
+        : kind === "confirm" ? t("browser.dlgConfirm")
+        : t("browser.dlgPrompt");
     kindLabel.style.cssText = "font-weight:600;font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em";
 
     // Message text

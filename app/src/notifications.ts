@@ -27,6 +27,7 @@ export class NotificationStore {
   private nextId = 1;
   private panel: HTMLElement;
   private listEl: HTMLElement;
+  private updateHeader?: () => void;
 
   constructor(
     private getPaneEl: (leafId: number) => HTMLElement | null,
@@ -45,6 +46,11 @@ export class NotificationStore {
     clear.textContent = t("notif.clearAll");
     clear.onclick = () => this.clearAll();
     header.append(title, clear);
+    // Re-apply translated text when panel opens (locale may not be set at construction).
+    this.updateHeader = () => {
+      title.textContent = t("notif.title");
+      clear.textContent = t("notif.clearAll");
+    };
 
     this.listEl = document.createElement("div");
     this.listEl.className = "notif-list";
@@ -71,7 +77,7 @@ export class NotificationStore {
     this.render();
     // Native toast only when the window isn't focused (don't nag the active user).
     if (!document.hasFocus()) {
-      void this.toast(title || `pane ${leafId}`, body);
+      void this.toast(title || t("notif.pane")(leafId), body);
     }
   }
 
@@ -137,11 +143,21 @@ export class NotificationStore {
       popOverlay("notif");
       this.panel.style.display = "none";
     } else {
-      // Showing: render first so the panel is populated, then register with
-      // the occlusion guard to hide native browser webviews behind it.
+      this.updateHeader?.();
       this.render();
       this.panel.style.display = "flex";
       pushOverlay("notif");
+      // Close when clicking outside the panel. Guard: skip if the triggering
+      // element is the bell button itself — the button's click handler calls
+      // togglePanel() after this mousedown, which would re-open the panel.
+      const bellBtn = document.getElementById("tb-notifications");
+      const onOutside = (e: MouseEvent) => {
+        const t = e.target as Node;
+        if (this.panel.contains(t) || bellBtn?.contains(t)) return;
+        document.removeEventListener("mousedown", onOutside, true);
+        this.togglePanel();
+      };
+      setTimeout(() => document.addEventListener("mousedown", onOutside, true), 0);
     }
   }
 
@@ -163,7 +179,7 @@ export class NotificationStore {
       ...this.items.map((n) => {
         const row = document.createElement("div");
         row.className = "notif-row" + (n.read ? " read" : "");
-        const label = n.title || `pane ${n.leafId}`;
+        const label = n.title || t("notif.pane")(n.leafId);
         row.textContent = n.body ? `${label} — ${n.body}` : label;
         row.onclick = () => {
           this.focusPane(n.leafId);

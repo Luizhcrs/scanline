@@ -501,10 +501,10 @@ export class PaneContainer implements PaneLike {
     };
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
-    const btnTerm    = mkPaneBtn("terminal", "New terminal tab",  () => this.newTerminalTab());
-    const btnBrowser = mkPaneBtn("globe",           "New browser tab",   () => this.onNewBrowserTab?.(this));
-    const btnRight   = mkPaneBtn("panel-right",     "Split right",       () => this.onSplitRight?.(this));
-    const btnDown    = mkPaneBtn("panel-bottom",    "Split down",        () => this.onSplitDown?.(this));
+    const btnTerm    = mkPaneBtn("terminal",     t("pane.newTabTitle"),          () => this.newTerminalTab());
+    const btnBrowser = mkPaneBtn("globe",        t("pane.newBrowserTabTitle"),   () => this.onNewBrowserTab?.(this));
+    const btnRight   = mkPaneBtn("panel-right",  t("cmd.split.right"),           () => this.onSplitRight?.(this));
+    const btnDown    = mkPaneBtn("panel-bottom",  t("cmd.split.down"),           () => this.onSplitDown?.(this));
     this.strip.replaceChildren(grip, ...tabs, add, spacer, btnTerm, btnBrowser, btnRight, btnDown);
     createIcons({ icons: { Terminal, Globe, PanelRight, PanelBottom } });
   }
