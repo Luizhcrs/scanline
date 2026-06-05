@@ -1,4 +1,5 @@
 import { config, type ScanlineConfig } from "./config";
+import { resetOnboarding, showOnboarding } from "./onboarding";
 import { pushOverlay, popOverlay } from "./overlay";
 import { t, getLang, resolveLocale } from "./i18n";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -398,7 +399,15 @@ export class SettingsPanel {
     copy.className = "settings-about-copy";
     copy.textContent = `© 2025 Luiz Henrique`;
 
-    area.append(wrap, links, copy);
+    const tutorialBtn = document.createElement("button");
+    tutorialBtn.className = "settings-about-tutorial-btn";
+    tutorialBtn.textContent = pt ? "Mostrar tutorial de boas-vindas" : "Show welcome tutorial";
+    tutorialBtn.addEventListener("click", () => {
+      resetOnboarding();
+      showOnboarding();
+    });
+
+    area.append(wrap, links, copy, tutorialBtn);
   }
 
   private saveFields(

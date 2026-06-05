@@ -22,6 +22,7 @@ import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdateOnLaunch } from "./updater";
+import { hasSeenOnboarding, showOnboarding } from "./onboarding";
 import { nextPaneId } from "./types";
 import type { PaneLike, SurfaceSpec, TreeSpec } from "./types";
 
@@ -349,6 +350,16 @@ class App {
     this.startAutosave();
     // Non-blocking: offer an update if one is published (silent otherwise).
     void checkForUpdateOnLaunch();
+    // loadConfig() already cleared the flag when no config file existed, so
+    // this check is now accurate: show onboarding only on true fresh installs.
+    if (!hasSeenOnboarding()) {
+      this.sidebar.style.visibility = "hidden";
+      this.content.style.visibility = "hidden";
+      showOnboarding(() => {
+        this.sidebar.style.visibility = "";
+        this.content.style.visibility = "";
+      });
+    }
   }
 
   /** The full app state needed to recreate workspaces + their layouts. */
@@ -1543,6 +1554,7 @@ function main() {
   installTooltips();
   initIcons();
   wireTitlebarControls();
+
   const app = new App(sidebar, content);
   wireTitlebarActions(app);
   document.getElementById("splash")?.remove();

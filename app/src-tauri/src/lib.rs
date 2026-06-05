@@ -305,6 +305,16 @@ fn pty_spawn(
         .map_err(|e| e.to_string())?;
 
     let program = shell.unwrap_or_else(|| "powershell.exe".to_string());
+    // Only allow known shells — reject arbitrary executables passed from the renderer.
+    const ALLOWED: &[&str] = &["powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe", "wsl.exe", "nu.exe"];
+    let prog_lower = program.to_lowercase();
+    let prog_name = std::path::Path::new(&prog_lower)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !ALLOWED.contains(&prog_name) {
+        return Err(format!("pty_spawn: shell '{}' is not in the allowed list", program));
+    }
     let mut cmd = CommandBuilder::new(&program);
     // If a command line was given (e.g. an agent pane from `scanline run` or a
     // tmux split-window with a command), run it via the shell. Otherwise the
