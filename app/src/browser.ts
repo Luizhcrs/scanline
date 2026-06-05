@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { type PaneLike, nextPaneId } from "./types";
 import { t } from "./i18n";
 
@@ -141,7 +142,13 @@ export class BrowserPane implements PaneLike {
       }).catch(() => {});
     };
 
-    bar.append(back, fwd, reload, this.urlInput, themeBtn, devtools);
+    const openExternal = mkBtn("↗", t("browser.openExternal"), () => {
+      const url = this.urlInput.value.trim();
+      if (url && url !== "about:blank") openUrl(url).catch(() => {});
+    });
+    openExternal.classList.add("browser-devtools-btn");
+
+    bar.append(back, fwd, reload, this.urlInput, themeBtn, openExternal, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";
