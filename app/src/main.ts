@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createIcons, PanelLeft, Plus, Bell, Settings } from "lucide";
+import { installTooltips } from "./tooltip";
 
 // Replace data-lucide attributes with actual SVGs (titlebar icons).
 function initIcons(): void {
@@ -16,7 +17,7 @@ import { CommandPalette, FindBar, type PaletteItem } from "./palette";
 import { FeedPanel } from "./feed";
 import { ContextMenu, type MenuItem } from "./contextmenu";
 import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
-import { setLocale, resolveLocale, t } from "./i18n";
+import { setLocale, resolveLocale, t, getLang } from "./i18n";
 import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -283,6 +284,8 @@ class App {
     // Load config first so the first panes pick up the configured font/theme.
     const cfg = await loadConfig();
     setLocale(await resolveLocale(cfg.ui.language));
+    // Update titlebar tooltips now that locale is resolved.
+    applyTitlebarTooltips();
     this.lastConfigJson = JSON.stringify(config());
     let restored = false;
     try {
@@ -315,7 +318,7 @@ class App {
               layout.setKeyHandler((e) => this.onKey(e));
               const ws: Workspace = {
                 id: this.nextWsId++,
-                title: w.title ?? `Workspace ${this.nextWsId - 1}`,
+                title: w.title ?? t("ws.defaultTitle")(this.nextWsId - 1),
                 grid,
                 layout,
                 pendingTree: w.tree,
@@ -408,48 +411,49 @@ class App {
     title.textContent = t("help.title");
     card.appendChild(title);
     const b = (name: string) => config().keybindings[name] || DEFAULT_BINDINGS[name];
+    const pt = getLang() === "pt";
     const SECTIONS: Array<[string, Array<[string, string]>]> = [
-      ["General", [
-        [b("palette"), "Command palette"],
-        [b("switcher"), "Switch workspace / pane"],
-        ["Ctrl+/", "This help"],
-        [b("settings"), "Settings"],
-        [b("minimal"), "Minimal mode"],
-        [b("fullscreen"), "Fullscreen"],
-        ["Ctrl+B", "Toggle sidebar"],
-        [b("find"), "Find"],
-        [b("findInDir"), "Find in directory"],
+      [pt ? "Geral" : "General", [
+        [b("palette"),    pt ? "Paleta de comandos"           : "Command palette"],
+        [b("switcher"),   pt ? "Trocar área / painel"         : "Switch workspace / pane"],
+        ["Ctrl+/",        pt ? "Esta ajuda"                   : "This help"],
+        [b("settings"),   pt ? "Configurações"                : "Settings"],
+        [b("minimal"),    pt ? "Modo mínimo"                  : "Minimal mode"],
+        [b("fullscreen"), pt ? "Tela cheia"                   : "Fullscreen"],
+        ["Ctrl+B",        pt ? "Alternar barra lateral"       : "Toggle sidebar"],
+        [b("find"),       pt ? "Buscar"                       : "Find"],
+        [b("findInDir"),  pt ? "Buscar no diretório"          : "Find in directory"],
       ]],
-      ["Workspaces", [
-        [b("newWorkspace"), "New workspace"],
-        ["Alt+1..8", "Jump to workspace (Alt+9 = last)"],
-        ["Alt+Shift+, / .", "Previous / next workspace"],
+      [pt ? "Áreas de trabalho" : "Workspaces", [
+        [b("newWorkspace"), pt ? "Nova área de trabalho"              : "New workspace"],
+        ["Alt+1..8",        pt ? "Ir para área (Alt+9 = última)"     : "Jump to workspace (Alt+9 = last)"],
+        ["Alt+Shift+, / .", pt ? "Anterior / próxima"                : "Previous / next workspace"],
       ]],
-      ["Panes & splits", [
-        ["Alt+Shift+Right", "Split right"],
-        ["Alt+Shift+Down", "Split down"],
-        ["Alt+Shift+B", "Open browser pane"],
-        ["Alt+Arrows", "Move focus between panes"],
-        ["Alt+Shift+Z", "Zoom pane"],
-        ["Alt+Shift+E", "Equalize splits"],
-        ["Ctrl+Shift+H", "Flash focused pane"],
-        ["Ctrl+Shift+W", "Close pane"],
+      [pt ? "Painéis e divisões" : "Panes & splits", [
+        ["Alt+Shift+Right", pt ? "Dividir à direita"       : "Split right"],
+        ["Alt+Shift+Down",  pt ? "Dividir abaixo"          : "Split down"],
+        ["Alt+Shift+B",     pt ? "Abrir painel navegador"  : "Open browser pane"],
+        ["Alt+Arrows",      pt ? "Mover foco"              : "Move focus between panes"],
+        ["Alt+Shift+Z",     pt ? "Zoom no painel"          : "Zoom pane"],
+        ["Alt+Shift+E",     pt ? "Igualar divisões"        : "Equalize splits"],
+        ["Ctrl+Shift+H",    pt ? "Piscar painel"           : "Flash focused pane"],
+        ["Ctrl+Shift+W",    pt ? "Fechar painel"           : "Close pane"],
       ]],
-      ["Tabs", [
-        [b("newTab"), "New terminal tab"],
-        ["Ctrl+W", "Close tab"],
-        ["Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"],
-        ["Ctrl+1..9", "Jump to tab"],
+      [pt ? "Abas" : "Tabs", [
+        [b("newTab"),                   pt ? "Nova aba de terminal"  : "New terminal tab"],
+        ["Ctrl+W",                      pt ? "Fechar aba"            : "Close tab"],
+        ["Ctrl+Tab / Ctrl+Shift+Tab",   pt ? "Próxima / anterior"   : "Next / previous tab"],
+        ["Ctrl+1..9",                   pt ? "Ir para aba"          : "Jump to tab"],
       ]],
       ["Terminal", [
-        ["Ctrl+Shift+K", "Clear scrollback"],
-        ["Ctrl+= / Ctrl+- / Ctrl+0", "Font size (browser: page zoom)"],
-        ["Ctrl+Shift+C / V", "Copy / paste"],
-        ["Ctrl+Shift+A", "Select all"],
+        ["Ctrl+Shift+K",        pt ? "Limpar histórico"        : "Clear scrollback"],
+        ["Ctrl+= / Ctrl+- / Ctrl+0", pt ? "Tamanho da fonte"  : "Font size (browser: page zoom)"],
+        ["Ctrl+Shift+C / V",    pt ? "Copiar / colar"          : "Copy / paste"],
+        ["Ctrl+Shift+A",        pt ? "Selecionar tudo"         : "Select all"],
       ]],
-      ["Notifications", [
-        ["Alt+Shift+N", "Notifications panel"],
-        ["Alt+Shift+U", "Jump to latest unread"],
+      [pt ? "Notificações" : "Notifications", [
+        ["Alt+Shift+N", pt ? "Painel de notificações" : "Notifications panel"],
+        ["Alt+Shift+U", pt ? "Última não lida"        : "Jump to latest unread"],
       ]],
     ];
     for (const [heading, rows] of SECTIONS) {
@@ -602,7 +606,7 @@ class App {
     layout.setKeyHandler((e) => this.onKey(e));
     const ws: Workspace = {
       id: this.nextWsId++,
-      title: `Workspace ${this.nextWsId - 1}`,
+      title: t("ws.defaultTitle")(this.nextWsId - 1),
       grid,
       layout,
     };
@@ -716,6 +720,13 @@ class App {
   toggleSidebar(): void {
     this.sidebarVisible = !this.sidebarVisible;
     this.sidebar.classList.toggle("hidden", !this.sidebarVisible);
+    // Inline flex-basis set by the resizer overrides .hidden's flex:0 0 0 — sync it.
+    if (!this.sidebarVisible) {
+      this.sidebar.style.flexBasis = "0";
+    } else {
+      const saved = localStorage.getItem("scanline.sidebarWidth");
+      this.sidebar.style.flexBasis = saved ? `${saved}px` : "";
+    }
   }
 
   private renderSidebar(): void {
@@ -1475,6 +1486,26 @@ const CAPABILITIES = [
   "system.ping", "system.identify", "system.capabilities",
 ];
 
+function applyTitlebarTooltips(): void {
+  const pt = getLang() === "pt";
+  const showShortcut = config().ui.tooltipShortcuts;
+  const tip = (label: string, shortcut: string) =>
+    showShortcut ? `${label} (${shortcut})` : label;
+  const tt: Record<string, string> = {
+    "tb-minimize":       pt ? "Minimizar"             : "Minimize",
+    "tb-maximize":       pt ? "Maximizar"             : "Maximize",
+    "tb-close":          pt ? "Fechar"                : "Close",
+    "tb-sidebar-toggle": tip(pt ? "Alternar barra lateral" : "Toggle Sidebar", "Ctrl+B"),
+    "tb-new-workspace":  tip(pt ? "Nova área de trabalho"  : "New Workspace",  "Ctrl+N"),
+    "tb-notifications":  tip(pt ? "Notificações"           : "Notifications",  "Alt+Shift+N"),
+    "tb-settings":       tip(pt ? "Configurações"          : "Settings",       "Ctrl+,"),
+  };
+  for (const [id, title] of Object.entries(tt)) {
+    const el = document.getElementById(id);
+    if (el) el.title = title;
+  }
+}
+
 function wireTitlebarControls(): void {
   const win = getCurrentWindow();
   document.getElementById("tb-minimize")?.addEventListener("click", () => win.minimize());
@@ -1509,6 +1540,7 @@ function main() {
   const sidebar = document.getElementById("sidebar");
   const content = document.getElementById("content");
   if (!sidebar || !content) return;
+  installTooltips();
   initIcons();
   wireTitlebarControls();
   const app = new App(sidebar, content);
