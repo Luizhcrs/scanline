@@ -39,3 +39,6 @@ internal/
 # Audit workflow scratch
 WF_*.json
 WF_*.md
+
+# Internal planning/AI docs — never publish
+docs/superpowers/
