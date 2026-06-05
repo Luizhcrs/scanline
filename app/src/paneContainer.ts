@@ -1,5 +1,8 @@
 import { type PaneLike, nextPaneId } from "./types";
 import { t } from "./i18n";
+import { createIcons, Terminal, Globe, PanelRight, PanelBottom } from "lucide";
+import { BrowserPane } from "./browser";
+
 
 /**
  * A grid leaf that holds multiple surfaces (terminals/browsers) as tabs. Only
@@ -28,6 +31,14 @@ export class PaneContainer implements PaneLike {
   onFocusRequest?: (pane: PaneLike) => void;
   onCloseRequest?: (pane: PaneLike) => void;
   onSplitRequest?: (pane: PaneLike) => void;
+  onSplitRight?: (pane: PaneLike) => void;
+  onSplitDown?: (pane: PaneLike) => void;
+  onNewBrowserTab?: (pane: PaneLike) => void;
+  /** Cross-container surface move: called when a tab from container srcId
+   *  at index srcIdx is dropped onto this container at position destIdx. */
+  onReceiveSurface?: (srcContainerId: number, srcIdx: number, destIdx: number) => void;
+  onSplitWithSurface?: (srcContainerId: number, srcIdx: number) => void;
+  onTabMovedTo?: (srcSurfaceIdx: number, destContainerId: number, toStrip: boolean) => void;
   onNotify?: (pane: PaneLike, title: string, body: string) => void;
   onOpenUrl?: (pane: PaneLike, url: string) => void;
   onPaneDragStart?: () => void;
@@ -52,10 +63,12 @@ export class PaneContainer implements PaneLike {
     this.el.className = "pane-container";
 
     this.strip = document.createElement("div");
-    this.strip.className = "surface-tabs";
+    this.strip.className = "surface-tabs surface-strip";
 
     this.body = document.createElement("div");
     this.body.className = "surface-body";
+
+    // Drop-target highlight: set/cleared by startTabDrag pointer tracking.
 
     this.el.append(this.strip, this.body);
     this.el.dataset.paneId = String(this.paneId); // for drag hit-testing
@@ -68,6 +81,85 @@ export class PaneContainer implements PaneLike {
    *  drop can land over a browser pane — cancels an HTML5 drag. With pointer
    *  capture the gesture survives, and elementFromPoint hit-tests the DOM once
    *  the webviews are hidden. */
+  private startTabDrag(surfaceIdx: number, e: PointerEvent): void {
+    const THRESHOLD = 6; // px before drag activates
+    const startX = e.clientX, startY = e.clientY;
+    let dragging = false;
+    let ghost: HTMLElement | null = null;
+
+    const clearHighlights = () => {
+      document.querySelectorAll(".surface-body.drop-target, .surface-strip.drop-target")
+        .forEach(el => el.classList.remove("drop-target"));
+    };
+
+    const containerUnder = (x: number, y: number): { containerId: number; onStrip: boolean } | null => {
+      // Temporarily hide ghost so elementFromPoint works.
+      if (ghost) ghost.style.display = "none";
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      if (ghost) ghost.style.display = "";
+      const strip = el?.closest<HTMLElement>(".surface-strip");
+      const body  = el?.closest<HTMLElement>(".surface-body");
+      const container = strip?.closest<HTMLElement>(".pane-container") ??
+                        body?.closest<HTMLElement>(".pane-container");
+      if (!container) return null;
+      const cId = Number(container.dataset.paneId);
+      return Number.isNaN(cId) ? null : { containerId: cId, onStrip: !!strip };
+    };
+
+    let done = false;
+    const finish = (target: { containerId: number; onStrip: boolean } | null) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+      document.body.classList.remove("dragging-tab");
+      ghost?.remove();
+      clearHighlights();
+      if (!target || target.containerId === this.paneId) return;
+      // onTabMovedTo is wired by Layout on the SOURCE container — it knows both
+      // source and destination IDs and calls moveSurfaceBetweenContainers correctly.
+      this.onTabMovedTo?.(surfaceIdx, target.containerId, target.onStrip);
+    };
+
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) < THRESHOLD) return;
+
+      if (!dragging) {
+        dragging = true;
+        document.body.classList.add("dragging-tab");
+        ghost = document.createElement("div");
+        ghost.className = "tab-drag-ghost";
+        ghost.textContent = this.surfaces[surfaceIdx]?.title || "tab";
+        document.body.appendChild(ghost);
+      }
+
+      if (ghost) {
+        ghost.style.left = `${ev.clientX + 12}px`;
+        ghost.style.top  = `${ev.clientY - 10}px`;
+      }
+      clearHighlights();
+      const target = containerUnder(ev.clientX, ev.clientY);
+      if (target && target.containerId !== this.paneId) {
+        const container = document.querySelector<HTMLElement>(
+          `[data-pane-id="${target.containerId}"] .${target.onStrip ? "surface-strip" : "surface-body"}`
+        );
+        container?.classList.add("drop-target");
+      }
+    };
+
+    const up = (ev: PointerEvent) => {
+      const target = dragging ? containerUnder(ev.clientX, ev.clientY) : null;
+      finish(target);
+    };
+    const cancel = () => { finish(null); };
+
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel);
+  }
+
   private startPaneDrag(_grip: HTMLElement, e: PointerEvent): void {
     e.preventDefault();
     this.onPaneDragStart?.(); // hide browser webviews so DOM is hit-testable
@@ -144,6 +236,10 @@ export class PaneContainer implements PaneLike {
     s.onCloseRequest = () => this.closeSurface(s);
     s.onSplitRequest = () => this.onSplitRequest?.(this);
     s.onOpenUrl = (_s, url) => this.onOpenUrl?.(this, url);
+    s.onNewWindow = (_s, url) => {
+      // Open target=_blank as a new surface tab in this container, not a split.
+      this.addSurface(new BrowserPane(url));
+    };
     s.onNotify = (_surf, t, b) => {
       if (s !== this.activeSurface) {
         this.flagged.add(s);
@@ -278,6 +374,34 @@ export class PaneContainer implements PaneLike {
   }
 
   /** Close the focused surface; if it was the last, the whole pane closes. */
+  /** Remove surface at index without disposing it (for cross-container move). */
+  removeSurfaceAt(idx: number): void {
+    if (idx < 0 || idx >= this.surfaces.length) return;
+    const s = this.surfaces[idx];
+    this.mounted.delete(s);
+    this.flagged.delete(s);
+    this.surfaces.splice(idx, 1);
+    if (this.surfaces.length === 0) {
+      this.onExit?.(this);
+      return;
+    }
+    if (idx < this.active) this.active--;
+    if (this.active >= this.surfaces.length) this.active = this.surfaces.length - 1;
+    this.showActive();
+    this.renderStrip();
+  }
+
+  /** Insert a surface at index (for cross-container move). */
+  insertSurfaceAt(s: PaneLike, idx: number): void {
+    this.adoptSurface(s);
+    const clamp = Math.max(0, Math.min(this.surfaces.length, idx));
+    this.surfaces.splice(clamp, 0, s);
+    this.active = clamp;
+    this.showActive();
+    this.renderStrip();
+    s.focus();
+  }
+
   closeActiveSurface(): void {
     this.closeSurface(this.activeSurface);
   }
@@ -330,27 +454,27 @@ export class PaneContainer implements PaneLike {
         e.stopPropagation();
         this.beginRename(s, label);
       };
-      tab.onclick = () => this.select(i);
-      // Drag to reorder tabs.
-      tab.draggable = true;
-      tab.ondragstart = (e) => e.dataTransfer?.setData("text/plain", String(i));
-      tab.ondragover = (e) => e.preventDefault();
-      tab.ondrop = (e) => {
-        e.preventDefault();
-        const from = Number(e.dataTransfer?.getData("text/plain"));
-        if (!Number.isNaN(from)) this.reorder(from, i);
+      // Pointer-based tab drag (HTML5 DnD conflicts with WebView2 pointer events).
+      // Do NOT call e.preventDefault() on pointerdown — it suppresses the click
+      // event that tab.onclick relies on for plain tab selection. Instead, start
+      // drag tracking and let clicks fall through naturally; startTabDrag only
+      // activates after the 6px THRESHOLD is crossed.
+      tab.onpointerdown = (e) => {
+        if (e.button !== 0) return;
+        const target = e.target as HTMLElement;
+        if (target.closest(".surface-tab-close")) return;
+        this.startTabDrag(i, e);
       };
+      tab.onclick = () => this.select(i);
       tab.append(label);
-      if (this.surfaces.length > 1) {
-        const x = document.createElement("button");
-        x.className = "surface-tab-close";
-        x.textContent = "✕";
-        x.onclick = (e) => {
-          e.stopPropagation();
-          this.closeSurface(s);
-        };
-        tab.append(x);
-      }
+      const x = document.createElement("button");
+      x.className = "surface-tab-close";
+      x.textContent = "✕";
+      x.onclick = (e) => {
+        e.stopPropagation();
+        this.closeSurface(s);
+      };
+      tab.append(x);
       return tab;
     });
     const add = document.createElement("button");
@@ -366,7 +490,23 @@ export class PaneContainer implements PaneLike {
     grip.onpointerdown = (e) => {
       if (e.button === 0) this.startPaneDrag(grip, e);
     };
-    this.strip.replaceChildren(grip, ...tabs, add);
+    // Right-side pane action buttons
+    const mkPaneBtn = (icon: string, title: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.className = "pane-action-btn";
+      b.title = title;
+      b.innerHTML = `<i data-lucide="${icon}"></i>`;
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      return b;
+    };
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    const btnTerm    = mkPaneBtn("terminal",     t("pane.newTabTitle"),          () => this.newTerminalTab());
+    const btnBrowser = mkPaneBtn("globe",        t("pane.newBrowserTabTitle"),   () => this.onNewBrowserTab?.(this));
+    const btnRight   = mkPaneBtn("panel-right",  t("cmd.split.right"),           () => this.onSplitRight?.(this));
+    const btnDown    = mkPaneBtn("panel-bottom",  t("cmd.split.down"),           () => this.onSplitDown?.(this));
+    this.strip.replaceChildren(grip, ...tabs, add, spacer, btnTerm, btnBrowser, btnRight, btnDown);
+    createIcons({ icons: { Terminal, Globe, PanelRight, PanelBottom } });
   }
 
   /** Start inline rename of the active tab (context menu / shortcut). */

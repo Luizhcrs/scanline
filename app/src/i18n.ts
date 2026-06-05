@@ -16,6 +16,7 @@ export const en = {
   "settings.cursor": "Cursor",
   "settings.save": "Save",
   "settings.cancel": "Cancel",
+  "settings.tooltipShortcuts": "Show shortcuts in tooltips",
   "settings.openFile": "Open config file",
   "settings.language": "Language / Idioma",
   "settings.langAuto": "Auto",
@@ -62,6 +63,13 @@ export const en = {
 
   // Sidebar / workspace strip
   "ws.add": "+ Workspace",
+  "ws.defaultTitle": (n: number) => `Workspace ${n}`,
+  "feed.allow": "Allow",
+  "feed.deny": "Deny",
+  "notif.pane": (id: number) => `Pane ${id}`,
+  "browser.dlgAlert": "Alert",
+  "browser.dlgConfirm": "Confirm",
+  "browser.dlgPrompt": "Prompt",
   "ws.renameHint": "Double-click to rename",
 
   // Palette placeholders
@@ -75,6 +83,12 @@ export const en = {
   "pane.renameHint": "Double-click to rename",
   "pane.newTabTitle": "New terminal tab (Ctrl+T)",
   "pane.dragGrip": "Drag to move this pane",
+  "pane.newBrowserTabTitle": "New browser tab",
+  "browser.devtools": "Open DevTools",
+  "browser.openExternal": "Open in default browser",
+  "browser.themeDark": "Force dark mode",
+  "browser.themeLight": "Force light mode",
+  "browser.themeAuto": "System theme (reset)",
 
   // Browser pane
   "browser.back": "Back",
@@ -124,6 +138,7 @@ export const pt: Messages = {
   "settings.cursor": "Cursor",
   "settings.save": "Salvar",
   "settings.cancel": "Cancelar",
+  "settings.tooltipShortcuts": "Mostrar atalhos nos tooltips",
   "settings.openFile": "Abrir arquivo de config",
   "settings.language": "Idioma / Language",
   "settings.langAuto": "Automático",
@@ -165,7 +180,14 @@ export const pt: Messages = {
   "menu.newWs": "Novo workspace",
   "menu.closeWs": "Fechar workspace",
 
-  "ws.add": "+ Workspace",
+  "ws.add": "+ Área de trabalho",
+  "ws.defaultTitle": (n: number) => `Área de trabalho ${n}`,
+  "feed.allow": "Permitir",
+  "feed.deny": "Negar",
+  "notif.pane": (id: number) => `Painel ${id}`,
+  "browser.dlgAlert": "Alerta",
+  "browser.dlgConfirm": "Confirmação",
+  "browser.dlgPrompt": "Entrada",
   "ws.renameHint": "Clique duplo para renomear",
 
   "palette.cmd": "Digite um comando…",
@@ -177,6 +199,12 @@ export const pt: Messages = {
   "pane.renameHint": "Clique duplo para renomear",
   "pane.newTabTitle": "Nova aba de terminal (Ctrl+T)",
   "pane.dragGrip": "Arraste para mover este painel",
+  "pane.newBrowserTabTitle": "Nova aba de navegador",
+  "browser.devtools": "Abrir DevTools",
+  "browser.openExternal": "Abrir no navegador padrão",
+  "browser.themeDark": "Forçar modo escuro",
+  "browser.themeLight": "Forçar modo claro",
+  "browser.themeAuto": "Tema do sistema (resetar)",
 
   "browser.back": "Voltar",
   "browser.forward": "Avançar",
@@ -209,6 +237,8 @@ export const pt: Messages = {
 
 const DICTS: Record<Lang, Messages> = { en, pt };
 let active: Messages = en;
+let activeLang: Lang = "en";
+export function getLang(): Lang { return activeLang; }
 
 /** Synchronous lookup in the active dictionary. */
 export function t<K extends keyof Messages>(key: K): Messages[K] {
@@ -218,6 +248,7 @@ export function t<K extends keyof Messages>(key: K): Messages[K] {
 /** Set the active dictionary. Call before any t()-backed render. */
 export function setLocale(lang: Lang): void {
   active = DICTS[lang];
+  activeLang = lang;
 }
 
 /** Map an OS locale string (e.g. "pt-BR") to a supported language. */

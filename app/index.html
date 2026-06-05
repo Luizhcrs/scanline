@@ -8,11 +8,13 @@
     <title>Scanline</title>
     <!-- Paint dark immediately so the WebView2 cold start shows no white flash. -->
     <style>
+      html {
+        height: 100%;
+      }
       html,
       body {
         margin: 0;
-        height: 100%;
-        background: #0d1017;
+        background: #141414;
       }
       #splash {
         position: fixed;
@@ -30,6 +32,35 @@
   </head>
   <body>
     <div id="splash">scanline</div>
+    <div id="titlebar" data-tauri-drag-region>
+<div id="titlebar-actions">
+        <button id="tb-sidebar-toggle" title="Toggle Sidebar" tabindex="-1">
+          <i data-lucide="panel-left"></i>
+        </button>
+        <button id="tb-new-workspace" title="New Workspace" tabindex="-1">
+          <i data-lucide="plus"></i>
+        </button>
+        <div class="tb-spacer"></div>
+        <button id="tb-notifications" title="Notifications" tabindex="-1">
+          <i data-lucide="bell"></i>
+        </button>
+      </div>
+      <div id="titlebar-controls">
+        <button id="tb-settings" title="Settings (Ctrl+,)" tabindex="-1">
+          <i data-lucide="settings"></i>
+        </button>
+        <div style="width:1px;height:16px;background:var(--border);margin:auto 4px;"></div>
+        <button id="tb-minimize" title="Minimize" tabindex="-1">
+          <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="tb-maximize" title="Maximize" tabindex="-1">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="tb-close" title="Close" tabindex="-1">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+      </div>
+    </div>
     <div id="app">
       <div id="sidebar"></div>
       <div id="content"></div>

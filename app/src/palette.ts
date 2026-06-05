@@ -4,6 +4,7 @@
  */
 import { pushOverlay, popOverlay } from "./overlay";
 import { t } from "./i18n";
+import { closeOverlay } from "./animate";
 
 export interface PaletteItem {
   id: string;
@@ -136,9 +137,13 @@ export class CommandPalette {
     this.debounce = undefined;
     ++this.gen;
     this.provider = null; // guard: async callback checks provider is still set
-    if (this.isOpen) popOverlay("palette");
-    this.overlay.style.display = "none";
-    this.restore?.focus();
+    const wasOpen = this.isOpen;
+    if (wasOpen) popOverlay("palette");
+    const restoreFocus = this.restore;
+    closeOverlay(this.overlay, () => {
+      this.overlay.style.display = "none";
+      restoreFocus?.focus();
+    });
   }
 
   private get isOpen(): boolean {

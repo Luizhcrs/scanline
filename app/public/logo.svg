@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="clip">
+      <rect width="512" height="512" rx="110"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#0d1117"/>
+
+  <!-- Scan lines — 7 horizontal bars, varying width, one bright -->
+  <g clip-path="url(#clip)">
+
+    <!-- Line 1 — dim, full width -->
+    <rect x="96"  y="138" width="320" height="12" rx="6" fill="#5aa0ff" opacity="0.15"/>
+
+    <!-- Line 2 — dim -->
+    <rect x="96"  y="174" width="260" height="12" rx="6" fill="#5aa0ff" opacity="0.22"/>
+
+    <!-- Line 3 — medium -->
+    <rect x="96"  y="210" width="290" height="12" rx="6" fill="#5aa0ff" opacity="0.35"/>
+
+    <!-- Line 4 — ACTIVE scanline: full width, bright -->
+    <rect x="96"  y="246" width="320" height="16" rx="8" fill="#5aa0ff" opacity="1"/>
+
+    <!-- Line 5 — medium -->
+    <rect x="96"  y="286" width="280" height="12" rx="6" fill="#5aa0ff" opacity="0.35"/>
+
+    <!-- Line 6 — dim -->
+    <rect x="96"  y="322" width="240" height="12" rx="6" fill="#5aa0ff" opacity="0.22"/>
+
+    <!-- Line 7 — dim, shorter -->
+    <rect x="96"  y="358" width="200" height="12" rx="6" fill="#5aa0ff" opacity="0.15"/>
+
+  </g>
+</svg>

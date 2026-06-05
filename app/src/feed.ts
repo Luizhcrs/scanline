@@ -36,7 +36,7 @@ export class FeedPanel {
   /** Show a card; resolves with the chosen option label, or "" if it
    *  auto-dismisses after FEED_TIMEOUT_MS (the caller has timed out by then). */
   ask(card: FeedCard): Promise<string> {
-    const options = card.options.length ? card.options : ["Allow", "Deny"];
+    const options = card.options.length ? card.options : [t("feed.allow"), t("feed.deny")];
     return new Promise((resolve) => {
       const row = document.createElement("div");
       row.className = "feed-card";

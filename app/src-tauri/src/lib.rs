@@ -74,6 +74,7 @@ mod log {
             }
         }
         let _ = guard.file.write_all(line.as_bytes());
+        let _ = guard.file.flush();
         guard.bytes += line.len() as u64;
     }
 
@@ -304,6 +305,16 @@ fn pty_spawn(
         .map_err(|e| e.to_string())?;
 
     let program = shell.unwrap_or_else(|| "powershell.exe".to_string());
+    // Only allow known shells — reject arbitrary executables passed from the renderer.
+    const ALLOWED: &[&str] = &["powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe", "wsl.exe", "nu.exe"];
+    let prog_lower = program.to_lowercase();
+    let prog_name = std::path::Path::new(&prog_lower)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !ALLOWED.contains(&prog_name) {
+        return Err(format!("pty_spawn: shell '{}' is not in the allowed list", program));
+    }
     let mut cmd = CommandBuilder::new(&program);
     // If a command line was given (e.g. an agent pane from `scanline run` or a
     // tmux split-window with a command), run it via the shell. Otherwise the
@@ -1075,6 +1086,9 @@ async fn browser_open(
     // whether it is the live webview or a stale dying predecessor. (bug #623)
     let nav_app_handle = app.clone();
     let log_url = url.clone();
+    // Log before dispatching to main thread so the entry survives even if the
+    // process is killed before the OS flushes the log buffer post-add_child.
+    log_info!("browser", "open dispatch pane={} url={}", id, log_url);
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app2 = app.clone();
     app.run_on_main_thread(move || {
@@ -1140,8 +1154,14 @@ async fn browser_open(
     })
     .map_err(|e| e.to_string())?;
 
-    let webview = match rx
-        .await
+    // 60s timeout: add_child on Windows can block if WebView2 is (re)initializing
+    // its EBWebView profile. Without a deadline the async task waits forever and
+    // the UI shows a blank pane with no feedback. The main thread is still blocked
+    // during this period — the timeout frees the task side so the frontend can
+    // emit an error; the main-thread stall watchdog will log it separately.
+    let rx_result = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+    let webview = match rx_result
+        .map_err(|_| format!("browser_open: add_child timed out after 60s (pane={})", id))?
         .map_err(|_| "browser_open: main-thread closure dropped".to_string())
     {
         Ok(Ok(w)) => {
@@ -2014,7 +2034,8 @@ pub fn run() {
             #[cfg(windows)]
             {
                 if let Some(win) = app.get_webview_window("main") {
-                    apply_dark_titlebar(&win);
+                    // Show after setup to avoid any flash.
+                    let _ = win.show();
                 }
                 setup_agent_hooks(app.handle());
             }

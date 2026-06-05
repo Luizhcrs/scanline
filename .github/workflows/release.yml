@@ -1,19 +1,10 @@
 name: release
 
-# Build, sign (updater key), and publish the Windows installer + updater feed
-# on every version tag. The published release's latest.json is what running
-# instances check on launch (see tauri.conf.json plugins.updater.endpoints).
-
-# Manual until the updater signing secret (TAURI_SIGNING_PRIVATE_KEY) is set on
-# the repo. Until then releases are built locally and published with gh, and
-# this workflow stays opt-in so a version-tag push does not fire an unsigned
-# build that races the manual release. Re-enable the tag trigger below once the
-# secret exists and createUpdaterArtifacts is turned back on in tauri.conf.json.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
-  # push:
-  #   tags:
-  #     - "v*"
 
 jobs:
   release:
@@ -29,14 +20,14 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: stable
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/src-tauri
+          workspaces: app/src-tauri -> target
 
       - name: Install frontend deps
         working-directory: app
@@ -47,11 +38,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: app
           tagName: ${{ github.ref_name }}
           releaseName: "Scanline ${{ github.ref_name }}"
-          releaseBody: "Windows installer below. Existing installs update themselves on next launch."
-          releaseDraft: false
+          releaseBody: "Windows installer below. Existing installs update automatically on next launch."
+          releaseDraft: true
           prerelease: false
+          args: --config src-tauri/tauri.release.conf.json

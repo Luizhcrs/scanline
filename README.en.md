@@ -354,8 +354,8 @@ Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` an
     "fontSize": 14,
     "scrollback": 10000,
     "theme": {
-      "background": "#0d1017",
-      "foreground": "#c5c8c6",
+      "background": "#000000",
+      "foreground": "#ffffff",
       "cursor": "#5aa0ff"
     }
   },
@@ -440,12 +440,14 @@ scanline/
       settings.ts        Settings panel
       config.ts          scanline.json load / merge / apply
       updater.ts         On-launch auto-update
+      onboarding.ts      Welcome modal (4 slides, PT/EN)
+      tooltip.ts         Custom tooltips (replaces native title)
       types.ts           Shared frontend types
       styles.css         Design tokens + chrome styles
       *.test.ts          Unit tests (Vitest)
     src-tauri/           Rust core
       src/lib.rs         PTY bridge, browser/CDP bridge, control server, config
-      tauri.conf.json    Window + bundle config (version 0.1.1)
+      tauri.conf.json    Window + bundle config (version 1.0.0)
       Cargo.toml         Rust dependencies
   cli/                   Go CLI + tmux-compat shim
     main.go              Command dispatch + pipe RPC

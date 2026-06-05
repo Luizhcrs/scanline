@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { type PaneLike, nextPaneId } from "./types";
 import { t } from "./i18n";
 
@@ -42,6 +43,7 @@ export class BrowserPane implements PaneLike {
   readonly el: HTMLElement;
   private viewport: HTMLElement;
   private urlInput: HTMLInputElement;
+  private loadingBar!: HTMLElement;
   private created = false;
   private creating = false;
   private disposed = false;
@@ -60,6 +62,10 @@ export class BrowserPane implements PaneLike {
   onCloseRequest?: (pane: PaneLike) => void;
   onSplitRequest?: (pane: PaneLike) => void;
   onOpenUrl?: (pane: PaneLike, url: string) => void;
+  /** Fired when a new window is requested (target="_blank", window.open).
+   *  Distinct from onOpenUrl (Ctrl+click link in terminal → split).
+   *  Browser panes open new-window requests as a new surface tab, not a split. */
+  onNewWindow?: (pane: PaneLike, url: string) => void;
 
   constructor(initialUrl = "https://duckduckgo.com") {
     this.pendingUrl = toUrl(initialUrl);
@@ -67,6 +73,11 @@ export class BrowserPane implements PaneLike {
     this.el = document.createElement("div");
     this.el.className = "pane browser";
     this.el.tabIndex = -1;
+
+    const loadingBar = document.createElement("div");
+    loadingBar.className = "browser-loading-bar";
+    this.el.appendChild(loadingBar);
+    this.loadingBar = loadingBar;
 
     const bar = document.createElement("div");
     bar.className = "browser-bar";
@@ -103,13 +114,41 @@ export class BrowserPane implements PaneLike {
     });
 
     // Pane controls — always clickable (DOM), independent of webview focus.
-    const split = mkBtn("⊟", "Split a terminal beside this", () =>
-      this.onSplitRequest?.(this),
+    const devtools = mkBtn("⚙", t("browser.devtools"), () =>
+      invoke("browser_devtools", { id: this.paneId }).catch(() => {}),
     );
-    const close = mkBtn("✕", "Close pane", () => this.onCloseRequest?.(this));
-    close.classList.add("close");
+    devtools.classList.add("browser-devtools-btn");
 
-    bar.append(back, fwd, reload, this.urlInput, split, close);
+    // Theme toggle: cycles Auto → Dark → Light → Auto via CDP Emulation.setEmulatedMedia.
+    type Theme = "auto" | "dark" | "light";
+    let theme: Theme = "auto";
+    const themeBtn = document.createElement("button");
+    themeBtn.className = "browser-bar-btn browser-theme-btn";
+    const updateThemeBtn = () => {
+      const next: Theme = theme === "auto" ? "dark" : theme === "dark" ? "light" : "auto";
+      themeBtn.title = t(next === "auto" ? "browser.themeAuto" : next === "dark" ? "browser.themeDark" : "browser.themeLight");
+      themeBtn.textContent = theme === "dark" ? "☾" : theme === "light" ? "☀" : "◑";
+    };
+    updateThemeBtn();
+    themeBtn.onclick = (e) => {
+      e.stopPropagation();
+      theme = theme === "auto" ? "dark" : theme === "dark" ? "light" : "auto";
+      updateThemeBtn();
+      const value = theme === "auto" ? "" : theme;
+      invoke("browser_cdp", {
+        id: this.paneId,
+        method: "Emulation.setEmulatedMedia",
+        params: JSON.stringify({ features: [{ name: "prefers-color-scheme", value }] }),
+      }).catch(() => {});
+    };
+
+    const openExternal = mkBtn("↗", t("browser.openExternal"), () => {
+      const url = this.urlInput.value.trim();
+      if (url && url !== "about:blank") openUrl(url).catch(() => {});
+    });
+    openExternal.classList.add("browser-devtools-btn");
+
+    bar.append(back, fwd, reload, this.urlInput, themeBtn, openExternal, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";
@@ -159,8 +198,15 @@ export class BrowserPane implements PaneLike {
     this.urlInput.value = url;
     this.pendingUrl = url;
     if (this.created) {
-      invoke("browser_navigate", { id: this.paneId, url }).catch(() => {});
+      this.setLoading(true);
+      invoke("browser_navigate", { id: this.paneId, url }).catch(() => {
+        this.setLoading(false);
+      });
     }
+  }
+
+  private setLoading(loading: boolean): void {
+    this.loadingBar?.classList.toggle("active", loading);
   }
 
   private _zoom = 1;
@@ -239,7 +285,37 @@ export class BrowserPane implements PaneLike {
     if (this.created) {
       invoke("browser_visible", { id: this.paneId, visible }).catch(() => {});
     }
-    if (visible) requestAnimationFrame(() => this.refit());
+    if (visible) {
+      this.placeholder?.remove();
+      this.placeholder = undefined;
+      requestAnimationFrame(() => this.refit());
+    } else {
+      this.showPlaceholder();
+    }
+  }
+
+  private placeholder?: HTMLElement;
+  private showPlaceholder(): void {
+    if (this.placeholder) return;
+    const el = document.createElement("div");
+    el.className = "browser-placeholder";
+    try {
+      const host = new URL(this.pendingUrl).hostname;
+      if (host) {
+        const img = document.createElement("img");
+        img.src = `https://www.google.com/s2/favicons?domain=${host}&sz=48`;
+        img.className = "browser-placeholder-favicon";
+        el.appendChild(img);
+      }
+    } catch { /* invalid URL, skip favicon */ }
+    if (this.title || this.pendingUrl) {
+      const label = document.createElement("span");
+      label.className = "browser-placeholder-title";
+      label.textContent = this.title || this.pendingUrl;
+      el.appendChild(label);
+    }
+    this.viewport.appendChild(el);
+    this.placeholder = el;
   }
 
   // ---- URL tracking ----
@@ -251,7 +327,9 @@ export class BrowserPane implements PaneLike {
     if (this.urlUnlisten) return;
     void listen<string>(`browser://${this.paneId}/url`, (e) => {
       const href = e.payload;
-      if (this.disposed || typeof href !== "string" || !href || href === this.pendingUrl) return;
+      if (this.disposed || typeof href !== "string" || !href) return;
+      this.setLoading(false);
+      if (href === this.pendingUrl) return;
       this.pendingUrl = href;
       // Don't overwrite the address bar while the user is editing it.
       if (document.activeElement !== this.urlInput) this.urlInput.value = href;
@@ -264,7 +342,10 @@ export class BrowserPane implements PaneLike {
     void listen<string>(`browser://${this.paneId}/new-window`, (e) => {
       const url = e.payload;
       if (this.disposed || typeof url !== "string" || !url) return;
-      this.onOpenUrl?.(this, url);
+      // Use onNewWindow if wired (opens as surface tab in same pane),
+      // else fall back to onOpenUrl (opens as split).
+      if (this.onNewWindow) this.onNewWindow(this, url);
+      else this.onOpenUrl?.(this, url);
     });
     this.startDialogListener();
   }
@@ -352,7 +433,10 @@ export class BrowserPane implements PaneLike {
     // Kind label
     const kindLabel = document.createElement("div");
     kindLabel.textContent =
-      kind === "beforeunload" ? t("browser.dlgLeaveTitle") : kind.charAt(0).toUpperCase() + kind.slice(1);
+      kind === "beforeunload" ? t("browser.dlgLeaveTitle")
+        : kind === "alert"   ? t("browser.dlgAlert")
+        : kind === "confirm" ? t("browser.dlgConfirm")
+        : t("browser.dlgPrompt");
     kindLabel.style.cssText = "font-weight:600;font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em";
 
     // Message text
