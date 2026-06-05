@@ -1628,6 +1628,7 @@ body.minimal .surface-tabs {
   display: flex;
   align-items: center;
   justify-content: center;
+  user-select: none;
 }
 .ob-card {
   background: var(--bg-elev);

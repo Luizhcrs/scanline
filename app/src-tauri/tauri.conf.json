@@ -19,6 +19,7 @@
         "height": 700,
         "minWidth": 640,
         "minHeight": 400,
+        "center": true,
         "theme": "Dark",
         "decorations": false,
         "visible": false
