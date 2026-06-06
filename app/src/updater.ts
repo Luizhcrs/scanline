@@ -12,7 +12,10 @@ export async function checkForUpdateOnLaunch(): Promise<void> {
   let update: Update | null = null;
   try {
     update = await check();
-  } catch {
+    if (update) console.log(`[updater] update available: ${update.version}`);
+    else console.log("[updater] no update");
+  } catch (e) {
+    console.warn("[updater] check failed:", e);
     return; // offline / no endpoint / no release yet — never bother the user
   }
   if (!update) return;

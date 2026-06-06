@@ -244,6 +244,7 @@ class App {
     // Best-effort final save when the window closes (the 8s autosave covers
     // crashes / power loss).
     window.addEventListener("beforeunload", () => {
+      console.log("[shell] beforeunload fired");
       // Don't persist during the async boot window — serializeSession would
       // write an empty workspace list and wipe the saved session.
       if (this.workspaces.length === 0) return;

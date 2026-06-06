@@ -250,6 +250,12 @@ fn start_hang_watch(app: AppHandle) {
             if last != 0 && gap > 3000 && now.saturating_sub(warned) > 2000 {
                 warned = now;
                 log_warn!("stall", "main/UI thread unresponsive for {}ms", gap);
+                // After 90s the main thread is non-recoverable. Exit so the user gets
+                // a fresh process on next launch instead of a frozen zombie.
+                if gap > 90_000 {
+                    log_warn!("stall", "stall exceeded 90s — process exit to prevent zombie");
+                    std::process::exit(1);
+                }
             }
         }
     });
@@ -1150,6 +1156,7 @@ async fn browser_open(
                 )
                 .map_err(|e| e.to_string())
         })();
+        log_info!("mt", "browser_open exit pane={}", id);
         let _ = tx.send(result);
     })
     .map_err(|e| e.to_string())?;
@@ -1399,6 +1406,7 @@ fn browser_navigate(
         let Ok(target) = Url::parse(&raw) else { return };
         log_info!("mt", "browser_navigate enter pane={}", id);
         let _ = v.navigate(target);
+        log_info!("mt", "browser_navigate done pane={}", id);
     });
     Ok(())
 }
@@ -2036,6 +2044,35 @@ pub fn run() {
                 if let Some(win) = app.get_webview_window("main") {
                     // Show after setup to avoid any flash.
                     let _ = win.show();
+                    // Register ScriptDialogOpening on the main WebView (the UI shell) to prevent
+                    // any JS alert/confirm/prompt/beforeunload from blocking the Win32 message pump.
+                    // Without this, a dialog on the main WebView freezes the host process for up to
+                    // 60 s — the exact "growing 4s → 60s stall" pattern seen in production logs.
+                    // Child browser-pane WebViews get this handler in browser_open (see PENDING_DIALOGS).
+                    let _ = win.with_webview(|pw| {
+                        use webview2_com::ScriptDialogOpeningEventHandler;
+                        let handler = ScriptDialogOpeningEventHandler::create(Box::new(|_sender, args| {
+                            let args = match args { Some(a) => a, None => return Ok(()) };
+                            // GetDeferral() suppresses WebView2's default blocking modal immediately.
+                            // We call Complete() right after — no overlay needed for the UI shell.
+                            if let Ok(deferral) = unsafe { args.GetDeferral() } {
+                                log_warn!("shell", "script dialog suppressed on main webview (would block pump)");
+                                let _ = unsafe { deferral.Complete() };
+                            }
+                            Ok(())
+                        }));
+                        let result = (|| -> windows::core::Result<()> {
+                            unsafe {
+                                let core = pw.controller().CoreWebView2()?;
+                                let mut token = Default::default();
+                                core.add_ScriptDialogOpening(&handler, &mut token)?;
+                            }
+                            Ok(())
+                        })();
+                        if let Err(e) = result {
+                            log_warn!("shell", "add_ScriptDialogOpening on main webview failed: {:?}", e);
+                        }
+                    });
                 }
                 setup_agent_hooks(app.handle());
             }
