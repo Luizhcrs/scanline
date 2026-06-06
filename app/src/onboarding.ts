@@ -1,4 +1,5 @@
 import { getLang } from "./i18n";
+import { config, saveConfig } from "./config";
 
 const LS_KEY = "scanline.onboardingSeen";
 
@@ -229,6 +230,7 @@ export function showOnboarding(onDone?: () => void): void {
 
   function dismiss(): void {
     markSeen();
+    saveConfig(config()); // persist default config so loadConfig() won't clear the flag on next launch
     card.style.transition = "transform 0.2s ease, opacity 0.2s ease";
     overlay.style.transition = "opacity 0.2s ease";
     card.style.transform = "scale(0.96)";
