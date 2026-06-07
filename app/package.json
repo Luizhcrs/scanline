@@ -1,7 +1,7 @@
 {
   "name": "scanline",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Windows-native terminal multiplexer + scriptable browser for AI coding agents",
   "license": "AGPL-3.0-only",
   "author": "Luiz <luizhcrs@gmail.com>",
@@ -39,4 +39,3 @@
     "vitest": "^4.1.8"
   }
 }
-

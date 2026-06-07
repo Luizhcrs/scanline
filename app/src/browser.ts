@@ -148,7 +148,44 @@ export class BrowserPane implements PaneLike {
     });
     openExternal.classList.add("browser-devtools-btn");
 
-    bar.append(back, fwd, reload, this.urlInput, themeBtn, openExternal, devtools);
+    const clearReload = mkBtn("⊘", t("browser.clearReload"), () => {
+      invoke("browser_cdp", {
+        id: this.paneId,
+        method: "Network.clearBrowserCookies",
+        params: JSON.stringify({}),
+      })
+        .then(() =>
+          invoke("browser_cdp", {
+            id: this.paneId,
+            method: "Network.enable",
+            params: JSON.stringify({}),
+          }),
+        )
+        .then(() =>
+          invoke("browser_cdp", {
+            id: this.paneId,
+            method: "Storage.clearDataForOrigin",
+            params: JSON.stringify({
+              origin: (() => {
+                try {
+                  return new URL(this.urlInput.value).origin;
+                } catch {
+                  return this.urlInput.value;
+                }
+              })(),
+              storageTypes: "cookies,local_storage,session_storage,indexeddb,cache_storage",
+            }),
+          }),
+        )
+        .catch(() => {})
+        .finally(() => {
+          this.navigate(this.urlInput.value);
+        });
+    });
+    clearReload.classList.add("browser-devtools-btn");
+    clearReload.title = t("browser.clearReload");
+
+    bar.append(back, fwd, reload, this.urlInput, themeBtn, clearReload, openExternal, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";
