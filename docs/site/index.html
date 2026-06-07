@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scanline — Terminal workspace for AI agents on Windows</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%2318181b'/><rect x='96' y='138' width='320' height='10' rx='5' fill='%233b82f6' opacity='.15'/><rect x='96' y='172' width='255' height='10' rx='5' fill='%233b82f6' opacity='.25'/><rect x='96' y='206' width='288' height='10' rx='5' fill='%233b82f6' opacity='.4'/><rect x='96' y='244' width='320' height='14' rx='7' fill='%2360a5fa'/><rect x='96' y='282' width='275' height='10' rx='5' fill='%233b82f6' opacity='.4'/><rect x='96' y='316' width='235' height='10' rx='5' fill='%233b82f6' opacity='.25'/><rect x='96' y='350' width='190' height='10' rx='5' fill='%233b82f6' opacity='.15'/></svg>">
+  <meta name="description" content="Windows-native terminal multiplexer with CDP-scriptable WebView2. Tile terminals and browser panes. Built for the AI agent loop. No WSL, no bundled Chromium.">
+  <meta property="og:title" content="Scanline">
+  <meta property="og:description" content="Windows-native terminal workspace built for AI coding agents.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #09090b;
+      --bg-2:       #111113;
+      --bg-3:       #18181b;
+      --bg-4:       #1c1c20;
+      --border:     #27272a;
+      --border-2:   #3f3f46;
+      --text:       #fafafa;
+      --muted:      #a1a1aa;
+      --subtle:     #71717a;
+      --accent:     #3b82f6;
+      --accent-l:   #60a5fa;
+      --accent-g:   rgba(59,130,246,.1);
+      --green:      #22c55e;
+      --yellow:     #eab308;
+      --purple:     #a78bfa;
+    }
+
+    ::selection { background: rgba(59,130,246,.28); color: var(--text); }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 90px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; transition: color .15s; }
+    a:hover { color: var(--accent-l); }
+
+    /* ── NAV (floating island) ── */
+    nav {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      width: min(calc(100% - 2rem), 900px);
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1rem;
+      background: rgba(9,9,11,.9);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      gap: 1rem;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      font-size: .9rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -.015em;
+      white-space: nowrap;
+    }
+
+    /* no logo in nav */
+
+    .nav-center {
+      display: flex;
+      align-items: center;
+      gap: .125rem;
+      list-style: none;
+    }
+
+    .nav-center a {
+      color: var(--muted);
+      font-size: .8125rem;
+      font-weight: 500;
+      padding: .375rem .6rem;
+      border-radius: 6px;
+      transition: color .15s, background .15s;
+    }
+    .nav-center a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    /* language toggle */
+    .lang-toggle {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .lang-btn {
+      padding: .2rem .45rem;
+      border-radius: 4px;
+      font-size: .7rem;
+      font-weight: 500;
+      color: var(--subtle);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: all .15s;
+      font-family: inherit;
+    }
+
+    .lang-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .lang-btn:not(.active):hover { color: var(--text); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .45rem .875rem;
+      border-radius: 7px;
+      font-size: .8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      border: 1px solid transparent;
+      line-height: 1;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-l); border-color: var(--accent-l); color: #fff; }
+
+    .btn-ghost { background: transparent; color: var(--muted); border-color: var(--border); }
+    .btn-ghost:hover { border-color: var(--border-2); color: var(--text); background: var(--bg-3); }
+
+    /* ── HERO ── */
+    .hero {
+      padding: clamp(7rem, 14vw, 11rem) clamp(1.5rem, 5vw, 3rem) clamp(4rem, 8vw, 6rem);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* hero logo */
+    .hero-logo {
+      margin-bottom: 2.25rem;
+    }
+
+    .hero-logo svg {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      box-shadow: 0 0 0 1px var(--border), 0 8px 40px rgba(59,130,246,.14);
+      display: block;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 5.5vw, 4rem);
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -.04em;
+      max-width: 780px;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 em { font-style: normal; color: var(--accent-l); }
+
+    .hero-desc {
+      font-size: clamp(.9375rem, 1.8vw, 1.0625rem);
+      color: var(--muted);
+      line-height: 1.75;
+      max-width: 520px;
+      margin-bottom: 2.25rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .75rem;
+      flex-wrap: wrap;
+    }
+
+    .hero-actions .btn { padding: .625rem 1.375rem; font-size: .9375rem; }
+    .hero-actions .btn-primary { padding: .65rem 1.5rem; }
+
+    /* ── SCREENSHOT ── */
+    .screenshot-wrap {
+      width: 100%;
+      max-width: 1000px;
+      margin: 3.5rem auto 0;
+      position: relative;
+    }
+
+    .screenshot-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 11px;
+      background: transparent;
+      box-shadow: 0 0 0 1px rgba(59,130,246,.15), 0 48px 120px rgba(0,0,0,.75);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .screenshot-wrap img {
+      width: 100%;
+      display: block;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+
+    /* ── SECTIONS ── */
+    .section {
+      padding: clamp(4rem, 8vw, 6rem) clamp(1.5rem, 5vw, 3.5rem);
+      max-width: 1060px;
+      margin: 0 auto;
+    }
+
+    .section-alt {
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .7rem;
+      font-weight: 500;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: .625rem;
+    }
+
+    .sh {
+      font-size: clamp(1.625rem, 3vw, 2.125rem);
+      font-weight: 700;
+      letter-spacing: -.025em;
+      line-height: 1.2;
+      margin-bottom: .625rem;
+    }
+
+    .sb {
+      font-size: .9375rem;
+      color: var(--muted);
+      max-width: 440px;
+      line-height: 1.75;
+      margin-bottom: 2.75rem;
+    }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .fc {
+      background: var(--bg-3);
+      padding: 2rem 2rem 1.875rem;
+      transition: background .15s;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .fc:hover { background: var(--bg-4); }
+
+    .fc-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+
+    .fc-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .6875rem;
+      color: var(--subtle);
+      font-weight: 500;
+      letter-spacing: .04em;
+      padding-top: 2px;
+    }
+
+    .fi {
+      width: 34px; height: 34px;
+      border-radius: 7px;
+      background: var(--accent-g);
+      border: 1px solid rgba(59,130,246,.18);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent-l);
+      flex-shrink: 0;
+    }
+
+    .fi svg { width: 16px; height: 16px; stroke-width: 1.75; }
+
+    .fc h3 { font-size: 1rem; font-weight: 600; margin-bottom: .4rem; letter-spacing: -.015em; }
+    .fc p  { font-size: .875rem; color: var(--muted); line-height: 1.7; }
+    .fc code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .8em;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: .05em .3em;
+      color: var(--muted);
+    }
+
+    /* ── INSTALL ── */
+    .inst-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+    }
+
+    .inst-card {
+      background: var(--bg-3);
+      padding: 1.625rem;
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+      transition: background .15s;
+    }
+
+    .inst-card:hover { background: var(--bg-4); }
+
+    .inst-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--accent-g);
+      border: 1px solid rgba(59,130,246,.22);
+      color: var(--accent-l);
+      font-size: .75rem; font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .inst-card h4 { font-size: .9375rem; font-weight: 600; letter-spacing: -.01em; }
+    .inst-card p  { font-size: .8125rem; color: var(--muted); line-height: 1.65; }
+    .inst-card code {
+      font-family: 'JetBrains Mono', monospace; font-size: .8em;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 3px; padding: .05em .3em; color: var(--muted);
+    }
+
+    .inst-cta { display: flex; gap: .75rem; flex-wrap: wrap; }
+
+    /* ── FOOTER ── */
+    .footer-wrap { border-top: 1px solid var(--border); padding: 1.75rem clamp(1.5rem, 5vw, 3.5rem); }
+
+    .footer-inner {
+      max-width: 1060px;
+      margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 1rem;
+    }
+
+    .footer-brand {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .875rem; font-weight: 600;
+      color: var(--muted); letter-spacing: -.01em;
+    }
+
+    .footer-brand svg { width: 18px; height: 18px; border-radius: 4px; }
+
+    .footer-links { display: flex; gap: 1.5rem; list-style: none; }
+    .footer-links a { color: var(--subtle); font-size: .8rem; }
+    .footer-links a:hover { color: var(--muted); }
+
+    .footer-copy { font-size: .8rem; color: var(--subtle); }
+
+    /* ── ANIMATIONS ── */
+    .anim {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity .5s ease, transform .5s ease;
+    }
+
+    .anim.visible { opacity: 1; transform: none; }
+
+    .d1 { transition-delay: .07s; }
+    .d2 { transition-delay: .14s; }
+    .d3 { transition-delay: .21s; }
+    .d4 { transition-delay: .28s; }
+    .d5 { transition-delay: .35s; }
+    .d6 { transition-delay: .42s; }
+
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .anim { opacity: 1; transform: none; transition: none; }
+      .sc-beam { animation: none; }
+      .t-cur  { animation: none; opacity: 1; }
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .features-grid { grid-template-columns: 1fr 1fr; }
+      .inst-row { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .features-grid { grid-template-columns: 1fr 1fr; }
+      .nav-center { display: none; }
+      .sc-body { grid-template-columns: 0 1fr 1fr; }
+      .sc-sidebar { display: none; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+      table { font-size: .8rem; }
+      thead th, td { padding: .65rem .875rem; }
+    }
+
+    @media (max-width: 480px) {
+      .sc-body { grid-template-columns: 1fr; }
+      .browser-pane { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="#">Scanline</a>
+  <ul class="nav-center" id="navLinks">
+    <li><a href="#features" data-i18n="nav.features">Features</a></li>
+    <li><a href="#install" data-i18n="nav.install">Install</a></li>
+    <li><a href="https://github.com/Luizhcrs/scanline" target="_blank" rel="noopener">GitHub</a></li>
+  </ul>
+  <div class="nav-right">
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-lang="pt" onclick="setLang('pt')">PT</button>
+    </div>
+    <a class="btn btn-primary" href="https://github.com/Luizhcrs/scanline/releases/latest" data-i18n="nav.download">Download</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-logo anim">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="512" height="512" rx="100" fill="#18181b"/>
+      <rect x="96" y="138" width="320" height="10" rx="5" fill="#3b82f6" opacity=".12"/>
+      <rect x="96" y="172" width="255" height="10" rx="5" fill="#3b82f6" opacity=".22"/>
+      <rect x="96" y="206" width="288" height="10" rx="5" fill="#3b82f6" opacity=".38"/>
+      <rect x="96" y="244" width="320" height="14" rx="7" fill="#60a5fa"/>
+      <rect x="96" y="282" width="275" height="10" rx="5" fill="#3b82f6" opacity=".38"/>
+      <rect x="96" y="316" width="235" height="10" rx="5" fill="#3b82f6" opacity=".22"/>
+      <rect x="96" y="350" width="190" height="10" rx="5" fill="#3b82f6" opacity=".12"/>
+    </svg>
+  </div>
+  <h1 class="anim d1" data-i18n-html="hero.h1">Terminal workspace<br>built for <em>AI agents</em></h1>
+  <p class="hero-desc anim d2" data-i18n="hero.desc">
+    Run AI agents on Windows without friction. Split terminals, open a real browser, and keep a human in the loop — all in one window.
+  </p>
+  <div class="hero-actions anim d3">
+    <a class="btn btn-primary" href="https://github.com/Luizhcrs/scanline/releases/latest" data-i18n="hero.download">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download for Windows
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/Luizhcrs/scanline" target="_blank" rel="noopener">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+      GitHub
+    </a>
+  </div>
+
+  <!-- App screenshot -->
+  <div class="screenshot-wrap anim d4">
+    <img src="shots/scene2.png" alt="Scanline — terminal workspace with split panes and browser" loading="lazy">
+  </div>
+</div>
+
+<!-- FEATURES -->
+<div class="section-alt">
+  <section class="section" id="features">
+    <div class="eyebrow anim" data-i18n="feat.eyebrow">Features</div>
+    <h2 class="sh anim d1" data-i18n="feat.h2">Everything the agent loop needs</h2>
+    <p class="sb anim d2" data-i18n="feat.sub">One window. Terminals, browser, pipe, and approval gates — natively on Windows.</p>
+
+    <div class="features-grid">
+      <div class="fc anim d1">
+        <div class="fc-top">
+          <span class="fc-num">01</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.grid.title">Split terminals</h3>
+        <p data-i18n="feat.grid.desc">Open as many terminal panes as you need, side by side. Resize, zoom, and switch between them without touching the mouse.</p>
+      </div>
+      <div class="fc anim d2">
+        <div class="fc-top">
+          <span class="fc-num">02</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.browser.title">Built-in browser</h3>
+        <p data-i18n="feat.browser.desc">A real browser lives inside the same window. Agents can see the page, click buttons, and fill forms — no separate app needed.</p>
+      </div>
+      <div class="fc anim d3">
+        <div class="fc-top">
+          <span class="fc-num">03</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.agent.title">Works with any agent</h3>
+        <p data-i18n="feat.agent.desc">Claude Code, Codex, or any AI tool launches directly inside Scanline. Each agent gets its own pane, and you see everything happening live.</p>
+      </div>
+      <div class="fc anim d4">
+        <div class="fc-top">
+          <span class="fc-num">04</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.pipe.title">Scriptable from the outside</h3>
+        <p data-i18n="feat.pipe.desc">Open panes, navigate the browser, or send commands to Scanline from any script or tool — no manual clicking required.</p>
+      </div>
+      <div class="fc anim d5">
+        <div class="fc-top">
+          <span class="fc-num">05</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.gate.title">Human approval gates</h3>
+        <p data-i18n="feat.gate.desc">Agents can pause and wait for your confirmation before taking risky actions. One click to approve or deny — you stay in control.</p>
+      </div>
+      <div class="fc anim d6">
+        <div class="fc-top">
+          <span class="fc-num">06</span>
+          <div class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        </div>
+        <h3 data-i18n="feat.restore.title">Picks up where you left off</h3>
+        <p data-i18n="feat.restore.desc">Your layout, open tabs, and workspaces are saved automatically. Reopen Scanline and everything is exactly as you left it.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+
+<!-- INSTALL -->
+<section class="section" id="install">
+  <div class="eyebrow anim" data-i18n="inst.eyebrow">Install</div>
+  <h2 class="sh anim d1" data-i18n="inst.h2">Up in three steps</h2>
+  <p class="sb anim d2" data-i18n="inst.sub">No extra software required. Just download, install, and open.</p>
+
+  <div class="inst-row anim d3">
+    <div class="inst-card">
+      <div class="inst-num">1</div>
+      <h4 data-i18n="inst.s1.title">Download</h4>
+      <p data-i18n="inst.s1.desc">Download the installer from the latest release and run it. Everything it needs is bundled.</p>
+    </div>
+    <div class="inst-card">
+      <div class="inst-num">2</div>
+      <h4 data-i18n="inst.s2.title">Place the CLI</h4>
+      <p data-i18n="inst.s2.desc">Drop <code>scanline.exe</code> anywhere on your system so scripts and agents can talk to the running window.</p>
+    </div>
+    <div class="inst-card">
+      <div class="inst-num">3</div>
+      <h4 data-i18n="inst.s3.title">Start working</h4>
+      <p data-i18n="inst.s3.desc">Open Scanline, split your first pane, and launch an agent. Your workspace is ready.</p>
+    </div>
+  </div>
+
+  <div class="inst-cta anim d4">
+    <a class="btn btn-primary" href="https://github.com/Luizhcrs/scanline/releases/latest" data-i18n="inst.cta">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download v1.0.2
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/Luizhcrs/scanline#build-from-source" target="_blank" rel="noopener" data-i18n="inst.source">Build from source</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<div class="footer-wrap">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect width="512" height="512" rx="100" fill="#18181b"/>
+        <rect x="96" y="244" width="320" height="14" rx="7" fill="#60a5fa"/>
+      </svg>
+      Scanline
+    </div>
+    <ul class="footer-links">
+      <li><a href="https://github.com/Luizhcrs/scanline" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://github.com/Luizhcrs/scanline/releases" target="_blank" rel="noopener">Releases</a></li>
+      <li><a href="https://github.com/Luizhcrs/scanline/blob/master/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a></li>
+    </ul>
+    <span class="footer-copy">AGPL-3.0 &copy; 2026 Luiz</span>
+  </div>
+</div>
+
+<script>
+  // ── i18n ──
+  const strings = {
+    en: {
+      'nav.features':       'Features',
+
+      'nav.compare':        'Compare',
+      'nav.install':        'Install',
+      'nav.download':       'Download',
+      'hero.h1':            'Terminal workspace<br>built for <em>AI agents</em>',
+      'hero.desc':          'Run AI agents on Windows without friction. Split terminals, open a real browser, and keep a human in the loop — all in one window.',
+      'hero.download':      'Download for Windows',
+      'feat.eyebrow':       'Features',
+      'feat.h2':            'Everything you need in one window',
+      'feat.sub':           'Terminals, browser, agents, and human oversight — without switching apps.',
+      'feat.grid.title':    'Split terminals',
+      'feat.grid.desc':     'Open as many terminal panes as you need, side by side. Resize, zoom, and switch between them without touching the mouse.',
+      'feat.browser.title': 'Built-in browser',
+      'feat.browser.desc':  'A real browser lives inside the same window. Agents can see the page, click buttons, and fill forms — no separate app needed.',
+      'feat.agent.title':   'Works with any agent',
+      'feat.agent.desc':    'Claude Code, Codex, or any AI tool launches directly inside Scanline. Each agent gets its own pane, and you see everything happening live.',
+      'feat.pipe.title':    'Scriptable from the outside',
+      'feat.pipe.desc':     'Open panes, navigate the browser, or send commands to Scanline from any script or tool — no manual clicking required.',
+      'feat.gate.title':    'Human approval gates',
+      'feat.gate.desc':     'Agents can pause and wait for your confirmation before taking risky actions. One click to approve or deny — you stay in control.',
+      'feat.restore.title': 'Picks up where you left off',
+      'feat.restore.desc':  'Your layout, open tabs, and workspaces are saved automatically. Reopen Scanline and everything is exactly as you left it.',
+      'cmp.eyebrow':        'Compare',
+      'cmp.h2':             'Where Scanline fits',
+      'cmp.sub':            'The only Windows-native tool covering the full agent loop: tiling terminal, scriptable browser, and agent hooks together.',
+      'cmp.col.tool':       'Tool',
+      'cmp.col.browser':    'Scriptable browser',
+      'cmp.col.hooks':      'Agent hooks',
+      'cmp.col.local':      'Local-first',
+      'cmp.col.license':    'License',
+      'cmp.cloudonly':      'Cloud only',
+      'cmp.readonly':       'Read-only',
+      'inst.eyebrow':       'Install',
+      'inst.h2':            'Up in three steps',
+      'inst.sub':           'No extra software required. Just download, install, and open.',
+      'inst.s1.title':      'Download',
+      'inst.s1.desc':       'Download the installer from the latest release and run it. Everything it needs is bundled.',
+      'inst.s2.title':      'Place the CLI',
+      'inst.s2.desc':       'Drop <code>scanline.exe</code> anywhere on your system so scripts and agents can talk to the running window.',
+      'inst.s3.title':      'Start working',
+      'inst.s3.desc':       'Open Scanline, split your first pane, and launch an agent. Your workspace is ready.',
+      'inst.cta':           'Download v1.0.2',
+      'inst.source':        'Build from source',
+      'yes':                'Yes',
+      'no':                 'No',
+      'part':               'Beta',
+    },
+    pt: {
+      'nav.features':       'Recursos',
+
+      'nav.compare':        'Comparar',
+      'nav.install':        'Instalar',
+      'nav.download':       'Baixar',
+      'hero.h1':            'Workspace de terminal<br>feito para <em>agentes de IA</em>',
+      'hero.desc':          'Rode agentes de IA no Windows sem complicação. Divida terminais, abra um browser real e mantenha o controle — tudo em uma janela.',
+      'hero.download':      'Baixar para Windows',
+      'feat.eyebrow':       'Recursos',
+      'feat.h2':            'Tudo em uma janela',
+      'feat.sub':           'Terminais, browser, agentes e controle humano — sem trocar de aplicativo.',
+      'feat.grid.title':    'Terminais divididos',
+      'feat.grid.desc':     'Abra quantos terminais precisar, lado a lado. Redimensione, dê zoom e navegue sem precisar do mouse.',
+      'feat.browser.title': 'Browser integrado',
+      'feat.browser.desc':  'Um browser real dentro da mesma janela. Agentes conseguem ver a página, clicar em botões e preencher formulários — sem abrir outra aplicação.',
+      'feat.agent.title':   'Funciona com qualquer agente',
+      'feat.agent.desc':    'Claude Code, Codex ou qualquer ferramenta de IA abre direto no Scanline. Cada agente tem seu próprio painel, e você vê tudo acontecendo em tempo real.',
+      'feat.pipe.title':    'Controlável por scripts',
+      'feat.pipe.desc':     'Abra painéis, navegue no browser ou envie comandos ao Scanline a partir de qualquer script ou ferramenta — sem clicar manualmente.',
+      'feat.gate.title':    'Aprovação humana',
+      'feat.gate.desc':     'Agentes podem pausar e aguardar sua confirmação antes de tomar ações arriscadas. Um clique para aprovar ou negar — você continua no controle.',
+      'feat.restore.title': 'Continua de onde parou',
+      'feat.restore.desc':  'Layout, abas abertas e workspaces são salvos automaticamente. Reabra o Scanline e tudo estará exatamente como você deixou.',
+      'cmp.eyebrow':        'Comparar',
+      'cmp.h2':             'Onde o Scanline se encaixa',
+      'cmp.sub':            'A única ferramenta Windows nativa que cobre o loop completo de agente: terminal tiling, browser programável e hooks de agente juntos.',
+      'cmp.col.tool':       'Ferramenta',
+      'cmp.col.browser':    'Browser programável',
+      'cmp.col.hooks':      'Hooks de agente',
+      'cmp.col.local':      'Local-first',
+      'cmp.col.license':    'Licença',
+      'cmp.cloudonly':      'Só na nuvem',
+      'cmp.readonly':       'Somente leitura',
+      'inst.eyebrow':       'Instalar',
+      'inst.h2':            'Pronto em três passos',
+      'inst.sub':           'Sem dependências extras. Baixe, instale e abra.',
+      'inst.s1.title':      'Baixar',
+      'inst.s1.desc':       'Baixe o instalador da última release e execute. Tudo que precisa já vem incluído.',
+      'inst.s2.title':      'Colocar o CLI',
+      'inst.s2.desc':       'Coloque <code>scanline.exe</code> em qualquer lugar do sistema para que scripts e agentes consigam se comunicar com a janela.',
+      'inst.s3.title':      'Começar a usar',
+      'inst.s3.desc':       'Abra o Scanline, divida seu primeiro painel e inicie um agente. Seu workspace está pronto.',
+      'inst.cta':           'Baixar v1.0.2',
+      'inst.source':        'Compilar do fonte',
+      'yes':                'Sim',
+      'no':                 'Não',
+      'part':               'Beta',
+    }
+  };
+
+  let currentLang = localStorage.getItem('lang') ||
+    (navigator.language.startsWith('pt') ? 'pt' : 'en');
+
+  function setLang(lang) {
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+    document.documentElement.lang = lang;
+
+    // update buttons
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.lang === lang);
+    });
+
+    const dict = strings[lang];
+
+    // plain text
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.dataset.i18n;
+      if (dict[key] !== undefined) el.textContent = dict[key];
+    });
+
+    // html (for elements with <em>, <code> etc)
+    document.querySelectorAll('[data-i18n-html]').forEach(el => {
+      const key = el.dataset.i18nHtml;
+      if (dict[key] !== undefined) el.innerHTML = dict[key];
+    });
+
+    // elements that use data-i18n but contain HTML (p tags with code inside)
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.dataset.i18n;
+      if (dict[key] !== undefined && dict[key].includes('<')) {
+        el.innerHTML = dict[key];
+      }
+    });
+  }
+
+  // Apply on load
+  setLang(currentLang);
+
+  // ── Scroll animations ──
+  const io = new IntersectionObserver(
+    entries => entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+    }),
+    { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+  );
+
+  document.querySelectorAll('.anim').forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.top < window.innerHeight && r.bottom > 0) {
+      el.classList.add('visible');
+    } else {
+      io.observe(el);
+    }
+  });
+</script>
+</body>
+</html>
