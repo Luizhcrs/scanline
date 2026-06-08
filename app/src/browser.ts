@@ -152,7 +152,12 @@ export class BrowserPane implements PaneLike {
       const origin = (() => {
         try { return new URL(this.urlInput.value).origin; } catch { return null; }
       })();
-      const clear = origin
+      const clearHttp = invoke("browser_cdp", {
+        id: this.paneId,
+        method: "Network.clearBrowserCache",
+        params: JSON.stringify({}),
+      });
+      const clearStorage = origin
         ? invoke("browser_cdp", {
             id: this.paneId,
             method: "Storage.clearDataForOrigin",
@@ -162,7 +167,9 @@ export class BrowserPane implements PaneLike {
             }),
           })
         : Promise.resolve();
-      clear.catch(() => {}).finally(() => this.navigate(this.urlInput.value));
+      Promise.all([clearHttp, clearStorage])
+        .catch(() => {})
+        .finally(() => this.navigate(this.urlInput.value));
     });
     clearReload.classList.add("browser-devtools-btn");
     clearReload.title = t("browser.clearReload");
