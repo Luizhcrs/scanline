@@ -128,7 +128,7 @@ macro_rules! log_error {
 /// A live pseudo-terminal: its master (for resize), input writer, and the
 /// child process handle (kept alive so the shell isn't reaped).
 struct Pty {
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     /// OS pid of the shell, root for the pane's listening-ports process tree.
@@ -202,6 +202,7 @@ static DIALOG_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(windows)]
 struct PendingDialog {
+    pane_id: u32,
     args: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2ScriptDialogOpeningEventArgs,
     deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
 }
@@ -253,7 +254,7 @@ fn start_hang_watch(app: AppHandle) {
                 // After 90s the main thread is non-recoverable. Exit so the user gets
                 // a fresh process on next launch instead of a frozen zombie.
                 if gap > 90_000 {
-                    log_warn!("stall", "stall exceeded 90s — process exit to prevent zombie");
+                    log_warn!("stall", "main UI/event-loop thread stall exceeded 90s — process exit to prevent zombie");
                     std::process::exit(1);
                 }
             }
@@ -392,7 +393,7 @@ fn pty_spawn(
     state.ptys.lock().unwrap_or_else(|e| e.into_inner()).insert(
         id,
         Pty {
-            writer,
+            writer: Arc::new(Mutex::new(writer)),
             master: pair.master,
             child,
             pid,
@@ -572,17 +573,17 @@ fn take_chunk(buf: &mut Vec<u8>, max: usize) -> Vec<u8> {
 /// non-UTF-8 key sequences survive the round-trip.
 #[tauri::command]
 fn pty_write(state: State<PtyManager>, id: u32, data: Vec<u8>) -> Result<(), String> {
-    let mut map = state.ptys.lock().unwrap_or_else(|e| e.into_inner());
-    // Return Err on unknown id so the frontend can log/surface dropped keystrokes
-    // instead of silently no-oping on a dead pty. (bug #234)
-    match map.get_mut(&id) {
-        Some(p) => {
-            p.writer.write_all(&data).map_err(|e| e.to_string())?;
-            p.writer.flush().map_err(|e| e.to_string())?;
-            Ok(())
+    let writer_arc = {
+        let mut map = state.ptys.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get_mut(&id) {
+            Some(p) => p.writer.clone(),
+            None => return Err(format!("pty_write: unknown pty id {id}")),
         }
-        None => Err(format!("pty_write: unknown pty id {id}")),
-    }
+    };
+    let mut writer = writer_arc.lock().unwrap_or_else(|e| e.into_inner());
+    writer.write_all(&data).map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Resize a pty to match the xterm.js viewport.
@@ -1254,7 +1255,7 @@ async fn browser_open(
 
                 let req = DIALOG_SEQ.fetch_add(1, Ordering::Relaxed);
                 PENDING_DIALOGS.with(|m| {
-                    m.borrow_mut().insert(req, PendingDialog { args, deferral });
+                    m.borrow_mut().insert(req, PendingDialog { pane_id: id, args, deferral });
                 });
 
                 log_info!("browser", "dialog kind={} pane={} uri={}", kind_str, id, uri);
@@ -1459,6 +1460,20 @@ fn browser_close(app: AppHandle, browsers: State<BrowserManager>, id: u32) -> Re
     if let Some(v) = v {
         log_info!("browser", "close pane={}", id);
         let _ = app.run_on_main_thread(move || {
+            #[cfg(windows)]
+            PENDING_DIALOGS.with(|m| {
+                let mut pending = m.borrow_mut();
+                let mut to_remove = Vec::new();
+                for (&req, pd) in pending.iter() {
+                    if pd.pane_id == id {
+                        to_remove.push(req);
+                        unsafe { let _ = pd.deferral.Complete(); }
+                    }
+                }
+                for req in to_remove {
+                    pending.remove(&req);
+                }
+            });
             let _ = v.close();
         });
     }

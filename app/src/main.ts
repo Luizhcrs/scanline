@@ -330,7 +330,7 @@ class App {
               };
               layout.setNotifyHandler((pane, t, b) => {
                 const surfaceId = (pane.activeSurface ?? pane).paneId;
-                this.notifs.add(surfaceId, t, b, ws.id);
+                this.notifs.add(surfaceId, t, b, ws.id, ws.title);
                 if (layout.focusedSurface.paneId === surfaceId && document.hasFocus()) {
                   this.notifs.clearForPane(surfaceId);
                 }
@@ -633,7 +633,7 @@ class App {
     // surface's ring — not every tab in the container.
     layout.setNotifyHandler((pane, t, b) => {
       const surfaceId = (pane.activeSurface ?? pane).paneId;
-      this.notifs.add(surfaceId, t, b, ws.id);
+      this.notifs.add(surfaceId, t, b, ws.id, ws.title);
       if (layout.focusedSurface.paneId === surfaceId && document.hasFocus()) {
         this.notifs.clearForPane(surfaceId);
       }
@@ -703,7 +703,7 @@ class App {
 
   private paneElAcrossWs(leafId: number): HTMLElement | null {
     for (const w of this.workspaces) {
-      const p = w.layout.paneById(leafId);
+      const p = w.layout.paneById(leafId) ?? w.layout.containerOfSurface(leafId);
       if (p) return p.el;
     }
     return null;
@@ -720,10 +720,16 @@ class App {
 
   private focusPaneAcrossWs(leafId: number): void {
     for (let i = 0; i < this.workspaces.length; i++) {
-      const p = this.workspaces[i].layout.paneById(leafId);
+      const layout = this.workspaces[i].layout;
+      const p = layout.paneById(leafId) ?? layout.containerOfSurface(leafId);
       if (p) {
         this.selectWorkspace(i);
-        this.workspaces[i].layout.setFocus(p);
+        layout.setFocus(p);
+        // If it's a surface inside a container, make sure it's active
+        if (p.allSurfaces && p.selectSurface) {
+          const idx = p.allSurfaces.findIndex((s) => s.paneId === leafId);
+          if (idx !== -1) p.selectSurface(idx);
+        }
         return;
       }
     }
@@ -1407,7 +1413,7 @@ class App {
           typeof cmd.surface === "number"
             ? cmd.surface
             : (container.activeSurface ?? container).paneId;
-        this.notifs.add(surfaceId, cmd.title ?? "", cmd.body ?? cmd.text ?? "", ws.id);
+        this.notifs.add(surfaceId, cmd.title ?? "", cmd.body ?? cmd.text ?? "", ws.id, ws.title);
         return { ok: true };
       }
       case "grep": {
@@ -1574,6 +1580,13 @@ function wireTitlebarActions(app: App): void {
 }
 
 function main() {
+  window.addEventListener("error", (e) => {
+    console.error("[Global Error]", e.error);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("[Unhandled Promise Rejection]", e.reason);
+  });
+
   const sidebar = document.getElementById("sidebar");
   const content = document.getElementById("content");
   if (!sidebar || !content) return;

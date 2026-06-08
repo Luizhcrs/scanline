@@ -16,6 +16,7 @@ export interface Notif {
   id: number;
   leafId: number;
   wsId: number;
+  wsTitle: string;
   title: string;
   body: string;
   read: boolean;
@@ -62,11 +63,12 @@ export class NotificationStore {
   onChange?: () => void;
 
   /** Record a notification and ring its pane. */
-  add(leafId: number, title: string, body: string, wsId = 0): void {
+  add(leafId: number, title: string, body: string, wsId = 0, wsTitle = ""): void {
     this.items.unshift({
       id: this.nextId++,
       leafId,
       wsId,
+      wsTitle,
       title,
       body,
       read: false,
@@ -184,8 +186,19 @@ export class NotificationStore {
       ...this.items.map((n) => {
         const row = document.createElement("div");
         row.className = "notif-row" + (n.read ? " read" : "");
+
+        if (n.wsTitle && n.wsTitle.trim()) {
+          const ws = document.createElement("span");
+          ws.className = "notif-ws";
+          ws.textContent = n.wsTitle;
+          row.appendChild(ws);
+        }
+
         const label = n.title || t("notif.pane")(n.leafId);
-        row.textContent = n.body ? `${label} — ${n.body}` : label;
+        const text = document.createElement("span");
+        text.textContent = n.body ? `${label} — ${n.body}` : label;
+        row.appendChild(text);
+
         row.onclick = () => {
           this.focusPane(n.leafId);
           this.togglePanel();

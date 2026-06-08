@@ -801,6 +801,9 @@ textarea {
   border-bottom: 1px solid var(--bg-elev2);
   border-left: 2px solid var(--accent);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .notif-row.read {
   border-left-color: transparent;
@@ -808,6 +811,16 @@ textarea {
 }
 .notif-row:hover {
   background: var(--bg-elev2);
+}
+.notif-ws {
+  font: 500 9px/1 var(--ui-font);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  opacity: 0.8;
+}
+.notif-row.read .notif-ws {
+  color: var(--text-dim);
 }
 .notif-empty {
   padding: 14px 10px;
