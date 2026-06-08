@@ -99,7 +99,29 @@ export class BrowserPane implements PaneLike {
     const fwd = mkBtn("›", t("browser.forward"), () =>
       invoke("browser_forward", { id: this.paneId }).catch(() => {}),
     );
-    const reload = mkBtn("⟳", t("browser.reload"), () => this.navigate(this.urlInput.value));
+    const reload = mkBtn("⟳", t("browser.reload"), () => {
+      const origin = (() => {
+        try { return new URL(this.urlInput.value).origin; } catch { return null; }
+      })();
+      const clearHttp = invoke("browser_cdp", {
+        id: this.paneId,
+        method: "Network.clearBrowserCache",
+        params: JSON.stringify({}),
+      });
+      const clearStorage = origin
+        ? invoke("browser_cdp", {
+            id: this.paneId,
+            method: "Storage.clearDataForOrigin",
+            params: JSON.stringify({
+              origin,
+              storageTypes: "cookies,local_storage,session_storage,indexeddb,cache_storage",
+            }),
+          })
+        : Promise.resolve();
+      Promise.all([clearHttp, clearStorage])
+        .catch(() => {})
+        .finally(() => this.navigate(this.urlInput.value));
+    });
 
     this.urlInput = document.createElement("input");
     this.urlInput.className = "browser-url";
@@ -148,33 +170,7 @@ export class BrowserPane implements PaneLike {
     });
     openExternal.classList.add("browser-devtools-btn");
 
-    const clearReload = mkBtn("⊘", t("browser.clearReload"), () => {
-      const origin = (() => {
-        try { return new URL(this.urlInput.value).origin; } catch { return null; }
-      })();
-      const clearHttp = invoke("browser_cdp", {
-        id: this.paneId,
-        method: "Network.clearBrowserCache",
-        params: JSON.stringify({}),
-      });
-      const clearStorage = origin
-        ? invoke("browser_cdp", {
-            id: this.paneId,
-            method: "Storage.clearDataForOrigin",
-            params: JSON.stringify({
-              origin,
-              storageTypes: "cookies,local_storage,session_storage,indexeddb,cache_storage",
-            }),
-          })
-        : Promise.resolve();
-      Promise.all([clearHttp, clearStorage])
-        .catch(() => {})
-        .finally(() => this.navigate(this.urlInput.value));
-    });
-    clearReload.classList.add("browser-devtools-btn");
-    clearReload.title = t("browser.clearReload");
-
-    bar.append(back, fwd, reload, this.urlInput, themeBtn, clearReload, openExternal, devtools);
+    bar.append(back, fwd, reload, this.urlInput, themeBtn, openExternal, devtools);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "browser-viewport";
