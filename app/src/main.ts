@@ -212,7 +212,10 @@ class App {
       (leafId) => this.paneElAcrossWs(leafId),
       (leafId) => this.focusPaneAcrossWs(leafId),
     );
-    this.notifs.onChange = () => this.renderSidebar();
+    this.notifs.onChange = () => {
+      this.renderSidebar();
+      this.updateBellBadge();
+    };
 
     this.installResizer();
     this.installContextMenu();
@@ -328,6 +331,9 @@ class App {
               layout.setNotifyHandler((pane, t, b) => {
                 const surfaceId = (pane.activeSurface ?? pane).paneId;
                 this.notifs.add(surfaceId, t, b, ws.id);
+                if (layout.focusedSurface.paneId === surfaceId && document.hasFocus()) {
+                  this.notifs.clearForPane(surfaceId);
+                }
               });
               layout.onFocusChange = (pane) => {
                 const surfaceId = (pane.activeSurface ?? pane).paneId;
@@ -628,6 +634,9 @@ class App {
     layout.setNotifyHandler((pane, t, b) => {
       const surfaceId = (pane.activeSurface ?? pane).paneId;
       this.notifs.add(surfaceId, t, b, ws.id);
+      if (layout.focusedSurface.paneId === surfaceId && document.hasFocus()) {
+        this.notifs.clearForPane(surfaceId);
+      }
     });
     layout.onFocusChange = (pane) => {
       const surfaceId = (pane.activeSurface ?? pane).paneId;
@@ -722,6 +731,22 @@ class App {
 
   toggleNotifications(): void {
     this.notifs.togglePanel();
+  }
+
+  private updateBellBadge(): void {
+    const badge = document.getElementById("notif-badge");
+    if (!badge) return;
+    const count = this.notifs.totalUnread();
+    if (count > 0) {
+      badge.textContent = count > 99 ? "99+" : String(count);
+      badge.style.display = "";
+      badge.classList.remove("pulse");
+      // Force reflow so animation re-triggers on each new notification.
+      void badge.offsetWidth;
+      badge.classList.add("pulse");
+    } else {
+      badge.style.display = "none";
+    }
   }
 
   openSettings(): void {

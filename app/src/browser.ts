@@ -149,38 +149,20 @@ export class BrowserPane implements PaneLike {
     openExternal.classList.add("browser-devtools-btn");
 
     const clearReload = mkBtn("⊘", t("browser.clearReload"), () => {
-      invoke("browser_cdp", {
-        id: this.paneId,
-        method: "Network.clearBrowserCookies",
-        params: JSON.stringify({}),
-      })
-        .then(() =>
-          invoke("browser_cdp", {
-            id: this.paneId,
-            method: "Network.enable",
-            params: JSON.stringify({}),
-          }),
-        )
-        .then(() =>
-          invoke("browser_cdp", {
+      const origin = (() => {
+        try { return new URL(this.urlInput.value).origin; } catch { return null; }
+      })();
+      const clear = origin
+        ? invoke("browser_cdp", {
             id: this.paneId,
             method: "Storage.clearDataForOrigin",
             params: JSON.stringify({
-              origin: (() => {
-                try {
-                  return new URL(this.urlInput.value).origin;
-                } catch {
-                  return this.urlInput.value;
-                }
-              })(),
+              origin,
               storageTypes: "cookies,local_storage,session_storage,indexeddb,cache_storage",
             }),
-          }),
-        )
-        .catch(() => {})
-        .finally(() => {
-          this.navigate(this.urlInput.value);
-        });
+          })
+        : Promise.resolve();
+      clear.catch(() => {}).finally(() => this.navigate(this.urlInput.value));
     });
     clearReload.classList.add("browser-devtools-btn");
     clearReload.title = t("browser.clearReload");
@@ -242,8 +224,13 @@ export class BrowserPane implements PaneLike {
     }
   }
 
+  private loadingTimer?: ReturnType<typeof setTimeout>;
   private setLoading(loading: boolean): void {
     this.loadingBar?.classList.toggle("active", loading);
+    clearTimeout(this.loadingTimer);
+    if (loading) {
+      this.loadingTimer = setTimeout(() => this.setLoading(false), 30_000);
+    }
   }
 
   private _zoom = 1;
@@ -284,6 +271,7 @@ export class BrowserPane implements PaneLike {
       const openedUrl = this.pendingUrl;
       // Chain onto the serial queue so concurrent restores never pile up on the
       // Win32 message pump (add_child is main-thread-synchronous in Rust).
+      if (openedUrl && openedUrl !== "about:blank") this.setLoading(true);
       _browserOpenQueue = _browserOpenQueue.then(() =>
         invoke("browser_open", { id: this.paneId, url: openedUrl, ...next })
           .then(() => {
@@ -302,6 +290,7 @@ export class BrowserPane implements PaneLike {
           })
           .catch((err) => {
             this.creating = false;
+            this.setLoading(false);
             console.error("browser_open", err);
           }),
       );
@@ -580,6 +569,7 @@ export class BrowserPane implements PaneLike {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.loadingTimer);
     this.resizeObserver?.disconnect();
     this.urlUnlisten?.();
     this.dialogUnlisten?.();

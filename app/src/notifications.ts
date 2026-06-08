@@ -135,6 +135,11 @@ export class NotificationStore {
     return this.items.filter((n) => n.wsId === wsId && !n.read).length;
   }
 
+  /** Total unread across all workspaces (bell button badge). */
+  totalUnread(): number {
+    return this.items.filter((n) => !n.read).length;
+  }
+
   togglePanel(): void {
     const showing = this.panel.style.display !== "none";
     if (showing) {
