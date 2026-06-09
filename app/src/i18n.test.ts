@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { en, pt, mapLocale, resolveLocale, t, setLocale } from "./i18n";
-import * as os from "@tauri-apps/plugin-os";
 
 describe("dictionary parity", () => {
   it("pt has exactly the same keys as en", () => {
@@ -23,23 +22,27 @@ describe("mapLocale", () => {
 });
 
 describe("resolveLocale", () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    (window as any).scanline = undefined;
+  });
 
   it("returns the explicit override without touching the OS", () => {
-    const spy = vi.spyOn(os, "locale");
+    const getLocale = vi.fn();
+    (window as any).scanline = { getLocale };
     return resolveLocale("pt").then((lang) => {
       expect(lang).toBe("pt");
-      expect(spy).not.toHaveBeenCalled();
+      expect(getLocale).not.toHaveBeenCalled();
     });
   });
 
   it("auto-detects from the OS locale", async () => {
-    vi.spyOn(os, "locale").mockResolvedValue("pt-BR");
+    (window as any).scanline = { getLocale: vi.fn().mockResolvedValue("pt-BR") };
     expect(await resolveLocale("auto")).toBe("pt");
   });
 
   it("auto falls back to en when OS locale is null", async () => {
-    vi.spyOn(os, "locale").mockResolvedValue(null);
+    (window as any).scanline = { getLocale: vi.fn().mockResolvedValue(null) };
     expect(await resolveLocale("auto")).toBe("en");
   });
 });

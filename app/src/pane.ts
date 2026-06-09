@@ -1,12 +1,12 @@
-import { invoke, Channel } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "./api";
+import { listen, type UnlistenFn } from "./api";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { SearchAddon } from "@xterm/addon-search";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+// openUrl is now window.scanline.openUrl
+// clipboard is now window.scanline.clipboardRead/clipboardWrite
 import { type PaneLike, nextPaneId } from "./types";
 import { config } from "./config";
 
@@ -133,9 +133,9 @@ export class Pane implements PaneLike {
     this.term.loadAddon(
       new WebLinksAddon((e, uri) => {
         if (e.ctrlKey || e.metaKey) this.onOpenUrl?.(this, uri);
-        // Plain click -> OS default browser via the opener plugin. window.open
+        // Plain click -> OS default browser via window.scanline.openUrl. window.open
         // in a WebView2 host is unreliable (blocked or an unmanaged popup).
-        else void openUrl(uri).catch(() => {});
+        else void ((window as any).scanline as any).openUrl(uri);
       }),
     );
 
@@ -253,19 +253,13 @@ export class Pane implements PaneLike {
     // spawn command — so the shell's first prompt can't outrun the listener.
     const id = (this.ptyId = nextPtyId++);
 
-    // PTY output streams over a dedicated IPC Channel (not a global event): the
-    // event system delivers on the main/UI thread and broadcasts to all webviews,
-    // which saturated the message pump under two busy agents and hung the app. A
-    // Channel is single-receiver and direct. Backend sends base64 (smaller +
-    // cheaper than a JSON number array).
-    const onData = new Channel<string>();
-    onData.onmessage = (payload) => {
+    const api = (window as any).scanline;
+    const dataUnlisten = api.onPtyData(id, (data: string) => {
       if (this.disposed) return;
-      const bin = atob(payload);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      this.term.write(bytes);
-    };
+      this.term.write(data);
+    });
+    this.unlisteners.push(dataUnlisten);
+
     const exitUn = await listen(`pty://${id}/exit`, () => {
       if (this.disposed) return;
       // Disable xterm input immediately so keystrokes typed into the dead
@@ -310,7 +304,6 @@ export class Pane implements PaneLike {
       command: this.command ?? null,
       surfaceId: this.paneId,
       cwd: this.initialCwd ?? null,
-      onData,
     });
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
@@ -364,7 +357,7 @@ export class Pane implements PaneLike {
     const sel = this.term.getSelection();
     if (!sel) return;
     try {
-      await writeText(sel);
+      await (window as any).scanline.clipboardWrite(sel);
     } catch (e) {
       console.warn("copy:", e);
     }
@@ -372,7 +365,7 @@ export class Pane implements PaneLike {
 
   async paste(): Promise<void> {
     try {
-      const t = await readText();
+      const t = await (window as any).scanline.clipboardRead();
       if (t) this.term.paste(t);
     } catch (e) {
       console.warn("paste:", e);

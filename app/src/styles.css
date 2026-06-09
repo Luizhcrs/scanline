@@ -147,6 +147,8 @@ body {
   align-items: stretch;
   padding: 0;
   position: relative;
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 /* Border only over the content area (not over the sidebar) */
 #titlebar::after {

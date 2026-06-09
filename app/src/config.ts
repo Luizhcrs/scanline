@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./api";
 
 /**
  * scanline.json — user config in %APPDATA%\scanline\scanline.json (JSONC: //

@@ -1,28 +1,17 @@
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { t } from "./i18n";
 
-/**
- * On-launch update check. Uses the Tauri updater (ed25519-signed artifacts on
- * GitHub Releases — independent of OS code signing). Silent if offline or no
- * release is published; otherwise offers a minimal styled prompt. The app keeps
- * running normally either way — the check never blocks startup.
- */
 export async function checkForUpdateOnLaunch(): Promise<void> {
-  let update: Update | null = null;
   try {
-    update = await check();
-    if (update) console.log(`[updater] update available: ${update.version}`);
-    else console.log("[updater] no update");
-  } catch (e) {
-    console.warn("[updater] check failed:", e);
-    return; // offline / no endpoint / no release yet — never bother the user
+    const api = (window as any).scanline;
+    const update = await api.checkUpdate();
+    if (!update) return;
+    showPrompt(update);
+  } catch {
+    // updater not available
   }
-  if (!update) return;
-  showPrompt(update);
 }
 
-function showPrompt(update: Update): void {
+function showPrompt(update: { version: string; body: string; download(cb: (e: any) => void): Promise<void> }): void {
   const scrim = document.createElement("div");
   scrim.className = "updater-scrim";
   const card = document.createElement("div");
@@ -56,7 +45,7 @@ function showPrompt(update: Update): void {
     let total = 0;
     let got = 0;
     try {
-      await update.downloadAndInstall((e) => {
+      await update.download((e) => {
         if (e.event === "Started") {
           total = e.data.contentLength ?? 0;
           status.textContent = t("updater.downloading");
@@ -70,7 +59,7 @@ function showPrompt(update: Update): void {
         }
       });
       status.textContent = t("updater.restarting");
-      await relaunch();
+      (window as any).scanline.relaunch();
     } catch (err) {
       status.textContent = t("updater.failed")(String(err));
       now.disabled = false;

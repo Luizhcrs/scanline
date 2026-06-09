@@ -1,4 +1,3 @@
-import { locale } from "@tauri-apps/plugin-os";
 
 export type Lang = "pt" | "en";
 
@@ -257,10 +256,10 @@ export function mapLocale(raw: string | null | undefined): Lang {
   return raw.toLowerCase().startsWith("pt") ? "pt" : "en";
 }
 
-/** Read the OS locale natively via plugin-os and map it. Never throws. */
+/** Read the OS locale natively via window.scanline and map it. Never throws. */
 export async function detectOsLocale(): Promise<Lang> {
   try {
-    return mapLocale(await locale());
+    return mapLocale(await (window as any).scanline.getLocale());
   } catch {
     return "en";
   }

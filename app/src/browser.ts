@@ -1,6 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "./api";
+import { listen, type UnlistenFn } from "./api";
 import { type PaneLike, nextPaneId } from "./types";
 import { t } from "./i18n";
 
@@ -47,6 +46,7 @@ export class BrowserPane implements PaneLike {
   private created = false;
   private creating = false;
   private disposed = false;
+  private _wantsVisible = true;
   private pendingUrl: string;
   // refit() is coalesced through one rAF so a burst of ResizeObserver / window
   // resize ticks collapses to a single browser_bounds per frame; lastRect then
@@ -166,7 +166,7 @@ export class BrowserPane implements PaneLike {
 
     const openExternal = mkBtn("↗", t("browser.openExternal"), () => {
       const url = this.urlInput.value.trim();
-      if (url && url !== "about:blank") openUrl(url).catch(() => {});
+      if (url && url !== "about:blank") (window as any).scanline.openUrl(url);
     });
     openExternal.classList.add("browser-devtools-btn");
 
@@ -284,12 +284,17 @@ export class BrowserPane implements PaneLike {
               void invoke("browser_close", { id: this.paneId }).catch(() => {});
               return;
             }
+            if (!this._wantsVisible) {
+              invoke("browser_visible", { id: this.paneId, visible: false }).catch(() => {});
+            }
             if (this.pendingUrl !== openedUrl) {
               invoke("browser_navigate", { id: this.paneId, url: this.pendingUrl }).catch(() => {});
             }
-            this.lastRect = null;
-            this.refit();
             this.startUrlListener();
+            if (this._wantsVisible) {
+              this.lastRect = null;
+              this.refit();
+            }
           })
           .catch((err) => {
             this.creating = false;
@@ -311,6 +316,7 @@ export class BrowserPane implements PaneLike {
 
   /** Hide/show the native webview when the surface tab (de)activates. */
   setVisible(visible: boolean): void {
+    this._wantsVisible = visible;
     if (this.created) {
       invoke("browser_visible", { id: this.paneId, visible }).catch(() => {});
     }

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./api";
 
 /**
  * Scriptable browser API (the agent-browser surface) on top of the proven CDP

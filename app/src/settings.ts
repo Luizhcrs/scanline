@@ -2,8 +2,8 @@ import { config, type ScanlineConfig } from "./config";
 import { resetOnboarding, showOnboarding } from "./onboarding";
 import { pushOverlay, popOverlay } from "./overlay";
 import { t, getLang, resolveLocale } from "./i18n";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { getVersion } from "@tauri-apps/api/app";
+// relaunch via window.scanline.relaunch()
+// getVersion via window.scanline.getVersion()
 import { createIcons, Palette, Terminal, Settings2, Keyboard, Info } from "lucide";
 import { closeOverlay } from "./animate";
 
@@ -367,7 +367,7 @@ export class SettingsPanel {
     const versionEl = document.createElement("div");
     versionEl.className = "settings-about-version";
     versionEl.textContent = "…";
-    void getVersion().then(v => { versionEl.textContent = `v${v}`; });
+    versionEl.textContent = 'v' + (window as any).scanline.getVersion();
 
     const tagline = document.createElement("div");
     tagline.className = "settings-about-tagline";
@@ -385,7 +385,7 @@ export class SettingsPanel {
       a.className = "settings-about-link";
       a.textContent = label;
       a.href = "#";
-      a.onclick = (e) => { e.preventDefault(); void import("@tauri-apps/plugin-opener").then(m => m.openUrl(href)); };
+      a.onclick = (e) => { e.preventDefault(); (window as any).scanline.openUrl(href); };
       return a;
     };
 
@@ -440,7 +440,7 @@ export class SettingsPanel {
       const target = await resolveLocale(lang);
       const current = await resolveLocale(c.ui.language);
       if (target === current) return;
-      await relaunch();
+      (window as any).scanline.relaunch();
     });
     this.close();
   }

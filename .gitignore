@@ -2,10 +2,8 @@
 node_modules/
 app/dist/
 
-# Rust / Tauri
-target/
-app/src-tauri/target/
-app/src-tauri/gen/schemas/
+# Electron build output
+app/dist-installer/
 
 # Go (cli, added later)
 cli/*.exe
@@ -29,8 +27,8 @@ Thumbs.db
 # Go CLI build artifacts (covered by cli/*.exe above; kept explicit)
 cli/scanline
 cli/scanline-cli.exe
-# Bundled-into-Tauri copy of the CLI (built by `npm run build:cli`)
-app/src-tauri/scanline.exe
+# CLI build artifact bundled with Electron
+app/scanline-cli.exe
 
 # Internal planning docs kept local, NEVER published (clean-room: the feature
 # catalog maps GPL cmux source by file:line — must not ship in a public repo).

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./api";
 import { createIcons, PanelLeft, Plus, Bell, Settings } from "lucide";
 import { installTooltips } from "./tooltip";
 
@@ -6,7 +6,7 @@ import { installTooltips } from "./tooltip";
 function initIcons(): void {
   createIcons({ icons: { PanelLeft, Plus, Bell, Settings } });
 }
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "./api";
 import { Pane } from "./pane";
 import { BrowserPane } from "./browser";
 import { PaneContainer } from "./paneContainer";
@@ -20,7 +20,6 @@ import { loadConfig, config, saveConfig, type ScanlineConfig } from "./config";
 import { setLocale, resolveLocale, t, getLang } from "./i18n";
 import { SettingsPanel } from "./settings";
 import { onOverlayChange, pushOverlay, popOverlay } from "./overlay";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdateOnLaunch } from "./updater";
 import { hasSeenOnboarding, showOnboarding } from "./onboarding";
 import { nextPaneId } from "./types";
@@ -500,11 +499,7 @@ class App {
   private fullscreen = false;
   private async toggleFullscreen(): Promise<void> {
     this.fullscreen = !this.fullscreen;
-    try {
-      await getCurrentWindow().setFullscreen(this.fullscreen);
-    } catch (e) {
-      console.error("fullscreen", e);
-    }
+    // Window fullscreen is handled by the main process in Electron.
   }
 
   /** Re-read scanline.json and apply it live (UI font + every terminal's
@@ -1550,10 +1545,10 @@ function applyTitlebarTooltips(): void {
 }
 
 function wireTitlebarControls(): void {
-  const win = getCurrentWindow();
-  document.getElementById("tb-minimize")?.addEventListener("click", () => win.minimize());
-  document.getElementById("tb-maximize")?.addEventListener("click", () => win.toggleMaximize());
-  document.getElementById("tb-close")?.addEventListener("click", () => win.close());
+  const api = (window as any).scanline;
+  document.getElementById('tb-minimize')?.addEventListener('click', () => api.minimize());
+  document.getElementById('tb-maximize')?.addEventListener('click', () => api.maximize());
+  document.getElementById('tb-close')?.addEventListener('click', () => api.close());
 }
 
 function wireTitlebarActions(app: App): void {

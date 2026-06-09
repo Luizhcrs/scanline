@@ -1,8 +1,3 @@
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
 import { pushOverlay, popOverlay } from "./overlay";
 import { t } from "./i18n";
 
@@ -85,9 +80,7 @@ export class NotificationStore {
 
   private async toast(title: string, body: string): Promise<void> {
     try {
-      let granted = await isPermissionGranted();
-      if (!granted) granted = (await requestPermission()) === "granted";
-      if (granted) sendNotification({ title, body });
+      (window as any).scanline.showNotification(title || "Scanline", body || "");
     } catch (e) {
       console.warn("toast:", e);
     }
