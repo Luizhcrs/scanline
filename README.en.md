@@ -6,20 +6,20 @@
 
 ---
 
-Scanline owns one window. Inside it you tile terminal panes and native WebView2 browser panes side by side, switch contexts with vertical-tab workspaces, and give agents a CDP-scriptable browser so they can snapshot, click, fill, and screenshot a live web app sitting next to the shell that built it.
+Scanline owns one window. Inside it you tile terminal panes and Chromium browser panes side by side, switch contexts with vertical-tab workspaces, and give agents a CDP-scriptable browser so they can snapshot, click, fill, and screenshot a live web app sitting next to the shell that built it.
 
-Native Windows: WebView2 + ConPTY. No WSL, no tmux, no bundled Chromium.
+Native Windows: Electron + ConPTY. No WSL, no tmux, no WebView2 dependency.
 
 ## What it is and why
 
-**The agent loop Scanline is built for:** the agent edits code in one pane, runs the dev server in another, then snapshots and drives its own web app in an adjacent WebView2 pane via CDP — with risky steps gated by blocking Feed approval cards for human-in-the-loop review.
+**The agent loop Scanline is built for:** the agent edits code in one pane, runs the dev server in another, then snapshots and drives its own web app in an adjacent browser pane via CDP — with risky steps gated by blocking Feed approval cards for human-in-the-loop review.
 
 Key capabilities:
 
 - **Tiling grid** — split right or down, resize, zoom, equalize, and navigate panes with the keyboard.
 - **Vertical-tab workspaces** — each workspace shows cwd, git branch + dirty marker, listening ports, and PR status via `gh`.
 - **Surface tabs** — multiple terminals stacked in one grid leaf, with drag-reorder.
-- **Browser panes** — real WebView2 child webviews. They ignore X-Frame-Options, so any site loads. Back/forward/reload, page zoom, and DevTools included.
+- **Browser panes** — real Chromium via Electron WebContentsView. Ignores X-Frame-Options, so any site loads. Back/forward/reload, page zoom, and DevTools included.
 - **Scriptable browser API** — CDP over `scanline browser`: snapshot interactive elements as `e1`, `e2`, …; click, fill, eval, screenshot, and more. Agents reference elements by tag, not by fragile XPath.
 - **Named-pipe control server** — external processes drive the live grid by writing V2 JSON-line requests to `\\.\pipe\scanline` and reading replies back. The Go CLI wraps this for shell use.
 - **Agent integration** — `scanline <agent>` launches any agent with a fake-tmux environment so its `tmux split-window` calls become real Scanline panes. Claude Code lifecycle hooks light up pane status dots and post notifications.
@@ -38,35 +38,34 @@ Key capabilities:
 | Wave Terminal | Browser widget is read-only for the AI, not a CDP-scriptable target |
 | Windows Terminal / WezTerm / Tabby | No agent hooks, no scriptable browser, no PR-status sidebar |
 
-Scanline's position: cmux's agent-native UX brought to Windows — a CDP-scriptable WebView2 browser, local-first, MIT, lightweight (reuses the OS WebView2 runtime, no bundled Chromium), and a native PT-BR/EN UI.
+Scanline's position: cmux's agent-native UX brought to Windows — a CDP-scriptable Chromium browser, local-first, MIT, and a native PT-BR/EN UI.
 
 ## Install
 
 ### Download the installer
 
-From the GitHub Releases page you pick between an **installer** and a **portable** build:
+From the GitHub Releases page:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
-- `Scanline_<version>_x64-setup.exe` — NSIS installer (recommended). Sets up Start Menu shortcuts and fetches the WebView2 runtime automatically if missing.
-- `Scanline_<version>_x64_en-US.msi` — MSI installer, for managed deployment (Group Policy, Intune).
-- `Scanline_<version>_portable_x64.zip` — portable. Unzip and run `app.exe`, no installation. Keep `scanline.exe` next to it.
+- `Scanline Setup <version>.exe` — NSIS installer (recommended). Sets up Start Menu shortcuts.
+- `Scanline <version>.exe` — portable. Run directly, no installation required.
 
-Because Scanline is not code-signed yet, Windows SmartScreen will show a "Windows protected your PC" dialog when you run the installer. This is expected for unsigned open-source applications. Click "More info" and then "Run anyway" to proceed — the installer is safe and the source is fully available in this repository.
+Because Scanline is not code-signed yet, Windows SmartScreen will show a "Windows protected your PC" dialog. Click "More info" and then "Run anyway" — the source is fully available in this repository.
 
-In-app auto-update is not enabled yet (the updater signing key is not configured). For now, grab new versions from the Releases page.
+In-app auto-update is not enabled yet. Grab new versions from the Releases page.
 
 ### Build from source
 
-Prerequisites: Node 20+, Rust stable + MSVC build tools, Go 1.25+.
+Prerequisites: Node 20+, Go 1.22+.
 
 ```powershell
 cd app
 npm install
-npm run tauri build
+npm run dist
 ```
 
-Output: `app\src-tauri\target\release\bundle\` (NSIS + MSI installers, and the bare `.exe`).
+Output: `app\dist-installer\` (NSIS installer).
 
 Build the CLI separately:
 
@@ -75,7 +74,7 @@ cd cli
 go build
 ```
 
-This emits `scanline.exe` (the Go module is also named `scanline`). Put it on your PATH so agents and scripts can reach the running window.
+This emits `scanline.exe`. Put it on your PATH so agents and scripts can reach the running window.
 
 <details>
 <summary><b>Features</b></summary>
@@ -83,16 +82,15 @@ This emits `scanline.exe` (the Go module is also named `scanline`). Put it on yo
 - Tiling grid: split right/down, resize, zoom, equalize, focus navigation by arrow key.
 - Workspaces: vertical-tab sidebar with cwd, git branch + dirty marker, listening ports, linked PR via `gh`.
 - Surface tabs: multiple terminals per grid leaf, drag-reorder, jump-to-tab.
-- Browser panes: native WebView2 child webviews (ignore X-Frame-Options), back/forward/reload, page zoom, DevTools.
+- Browser panes: Chromium via WebContentsView (ignores X-Frame-Options), back/forward/reload, page zoom, DevTools.
 - Scriptable browser over CDP: `snapshot`, `click`, `fill`, `type`, `eval`, `text`, `html`, `exists`, `wait`, `count`, `find`, `attr`, `value`, `visible`, `checked`, `check`, `uncheck`, `select`, `press`, `scroll`, `zoom`, `viewport`, `cookies`, `storage`, `screenshot`, `navigate`, `back`, `forward`, `reload`, `devtools`.
-- Named-pipe control server: V2 JSON-line request/response, so CLI and agents can both command and query the live grid.
+- Named-pipe control server: V2 JSON-line request/response, for CLI and agents to command and query the live grid.
 - Agent integration: fake-tmux launcher, Claude Code lifecycle hooks, Feed approval cards.
 - Notifications: per-pane bells, unread badge per workspace, notification panel.
 - Session restore: layout, cwd, browser URLs — persisted to `%APPDATA%\scanline\session.json`.
 - Bilingual UI: Portuguese / English, auto-detected from the OS on first boot, override via `ui.language` (`auto` / `pt` / `en`); switching applies through a clean relaunch.
 - Single instance: a second launch focuses the existing window instead of starting a parallel process.
 - Config: JSONC `scanline.json`, live reload on window focus or `scanline config reload`.
-- Native touches: dark title bar matched to the app chrome, crash log at `%APPDATA%\scanline\crash.log`.
 
 </details>
 
@@ -318,20 +316,12 @@ scanline codex              # or any other agent on PATH
 
 ### Claude Code hooks
 
-Scanline installs these hooks automatically on launch (idempotent — it only
-adds its own entries and never clobbers an unparseable config), so pane status
-dots and notifications work out of the box. To (re)install manually, e.g. into
-a project-local config:
+Scanline installs these hooks automatically on launch (idempotent). To (re)install manually:
 
 ```powershell
 scanline hooks setup            # writes to %USERPROFILE%\.claude\settings.json
 scanline hooks setup --project  # writes to .\.claude\settings.json
 ```
-
-The hook is a no-op outside a Scanline pane, so it never disturbs Claude
-sessions you run in a normal terminal.
-
-Event mapping:
 
 | Claude Code event | Pane status |
 |---|---|
@@ -345,7 +335,7 @@ Event mapping:
 <details>
 <summary><b>Configuration</b></summary>
 
-Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` and `/* */` comments are allowed). The file is loaded on boot and reloaded live on window focus or `scanline config reload`. Open it with `scanline config edit` or Ctrl+, in the Settings panel.
+Config lives at `%APPDATA%\scanline\scanline.json`. JSONC format. Reloaded live on window focus or `scanline config reload`.
 
 ```jsonc
 {
@@ -362,22 +352,15 @@ Config lives at `%APPDATA%\scanline\scanline.json`. The format is JSONC (`//` an
   "ui": {
     "fontFamily": "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif",
     "minimal": false,
-    // "auto" follows the OS language; "pt" or "en" force it.
     "language": "auto"
   },
-  // Rebind actions. Format: "ctrl+alt+shift+key".
-  // Actions: palette, switcher, find, findInDir, newWorkspace, newTab,
-  //          settings, minimal, fullscreen, help.
   "keybindings": {}
 }
 ```
 
-Other state files (not user-edited):
-
 | File | Contents |
 |---|---|
 | `%APPDATA%\scanline\session.json` | Workspace layout, cwd, browser URLs |
-| `%APPDATA%\scanline\crash.log` | Crash reports |
 
 </details>
 
@@ -386,35 +369,35 @@ Other state files (not user-edited):
 
 ```mermaid
 flowchart TB
-    subgraph WIN["Scanline window (WebView2)"]
+    subgraph WIN["Scanline window (Electron)"]
         direction LR
-        SIDE["Sidebar<br/>workspaces"]
-        GRID["Grid<br/>xterm.js DOM panes<br/>+ WebView2 child webviews"]
+        SIDE["Sidebar\nworkspaces"]
+        GRID["Grid\nxterm.js DOM panes\n+ WebContentsView (Chromium)"]
         SIDE --- GRID
     end
 
-    subgraph RUST["Rust core (Tauri 2)"]
-        PTY["ConPTY bridge<br/>portable-pty: spawn / read / write / size"]
-        BROW["Browser manager<br/>child webviews + CDP bridge"]
-        PIPE["Named-pipe control server<br/>&#92;&#92;.&#92;pipe&#92;scanline (V2 JSON)"]
-        PERSIST["Session + config persistence<br/>%APPDATA%&#92;scanline"]
+    subgraph MAIN["Main process (Node.js)"]
+        PTY["node-pty\nConPTY: spawn / read / write / resize"]
+        BROW["BrowserManager\nWebContentsView + CDP"]
+        PIPE["Named-pipe server\n\\\\.\\pipe\\scanline (V2 JSON)"]
+        PERSIST["Persistence\n%APPDATA%\\scanline"]
     end
 
     subgraph CLI["Go CLI (scanline.exe)"]
-        CMD["Direct commands<br/>split / run / web / browser / send"]
-        SHIM["tmux-compat shim<br/>tmux split-window &rarr; real panes"]
-        AGENT["Agent launcher<br/>+ Claude Code hooks"]
+        CMD["Direct commands\nsplit / run / web / browser / send"]
+        SHIM["tmux-compat shim\ntmux split-window → real panes"]
+        AGENT["Agent launcher\n+ Claude Code hooks"]
     end
 
-    WIN -->|"Tauri IPC<br/>commands + events"| RUST
-    RUST -.->|"CDP via with_webview<br/>CallDevToolsProtocolMethod"| WIN
+    WIN -->|"IPC contextBridge\nwindow.scanline.*"| MAIN
+    MAIN -.->|"CDP via debugger.sendCommand"| WIN
     CLI <-->|"JSON lines over named pipe"| PIPE
 ```
 
-- **Frontend:** TypeScript + Vite + xterm.js. The terminal uses the DOM renderer deliberately — the WebGL addon wedges the WebView2 renderer on this stack.
-- **PTY:** each terminal pane is a ConPTY via `portable-pty`. Output is coalesced and base64-encoded before crossing the Tauri IPC bridge.
-- **Browser panes:** native WebView2 child webviews positioned over the DOM grid. The scriptable API reaches `ICoreWebView2` through Tauri's `with_webview` escape hatch and calls `CallDevToolsProtocolMethodAsync` for real CDP.
-- **Control:** a single-instance named-pipe server (`\\.\pipe\scanline`) forwards requests to the frontend and routes replies back, enabling both fire-and-forget commands and request/response queries.
+- **Frontend:** TypeScript + Vite + xterm.js. DOM renderer — WebGL addon wedges the renderer here.
+- **PTY:** each terminal pane is a ConPTY via `node-pty`. Data arrives as UTF-8 strings directly over Electron IPC.
+- **Browser panes:** `WebContentsView` positioned over the DOM grid. CDP via `webContents.debugger.sendCommand`.
+- **Control:** Node.js named-pipe server (`\\.\pipe\scanline`) forwards requests to the renderer and routes replies back.
 
 </details>
 
@@ -423,39 +406,41 @@ flowchart TB
 
 ```
 scanline/
-  app/                   Tauri application
+  app/                   Electron application
     index.html           shell + dark splash
+    electron/            Main process (Node.js)
+      main.ts            BrowserWindow, IPC handlers, subsystem init
+      preload.ts         contextBridge — exposes window.scanline to renderer
+      pty-manager.ts     node-pty ConPTY wrapper
+      browser-manager.ts WebContentsView for browser panes
+      control-server.ts  Named-pipe server (Go CLI protocol unchanged)
+      app-config.ts      Config and session read/write in %APPDATA%
     src/                 Frontend (TypeScript, xterm.js)
+      api.ts             invoke()/listen() shim → window.scanline
       main.ts            App shell: workspaces, shortcuts, control dispatch
       layout.ts          Tiling grid (splits, focus, zoom, serialize)
-      pane.ts            Terminal pane (xterm + ConPTY bridge)
+      pane.ts            Terminal pane (xterm + node-pty via IPC)
       paneContainer.ts   Surface tabs within a grid leaf
-      browser.ts         Browser pane (WebView2 child webview)
+      browser.ts         Browser pane (WebContentsView)
       browserApi.ts      Scriptable browser API over CDP
       palette.ts         Command palette + find bar
       contextmenu.ts     Right-click context menu
-      overlay.ts         Overlay stack (Esc / click-outside)
+      overlay.ts         Overlay stack
       feed.ts            Blocking approval cards
       notifications.ts   Notification store + panel
       settings.ts        Settings panel
       config.ts          scanline.json load / merge / apply
-      updater.ts         On-launch auto-update
-      onboarding.ts      Welcome modal (4 slides, PT/EN)
-      tooltip.ts         Custom tooltips (replaces native title)
+      updater.ts         Auto-update (stub)
       types.ts           Shared frontend types
       styles.css         Design tokens + chrome styles
       *.test.ts          Unit tests (Vitest)
-    src-tauri/           Rust core
-      src/lib.rs         PTY bridge, browser/CDP bridge, control server, config
-      tauri.conf.json    Window + bundle config (version 1.0.0)
-      Cargo.toml         Rust dependencies
+    icons/               App icons
   cli/                   Go CLI + tmux-compat shim
     main.go              Command dispatch + pipe RPC
     tmux.go              tmux-compat translation + agent launcher
     browser.go           Scriptable-browser CLI verbs
     hooks.go             Claude Code hook dispatch + setup
     feed.go              Blocking approval (scanline ask)
-    *_test.go            CLI tests
 ```
 
 </details>
