@@ -1404,9 +1404,12 @@ fn browser_navigate(
     let _ = app.run_on_main_thread(move || {
         let raw = pending_arc.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         let Some(raw) = raw else { return };
-        let Ok(target) = Url::parse(&raw) else { return };
+        // Validate URL before navigating to prevent injection.
+        if Url::parse(&raw).is_err() { return };
         log_info!("mt", "browser_navigate enter pane={}", id);
-        let _ = v.navigate(target);
+        // eval is fire-and-forget (ExecuteScript async) — avoids blocking the
+        // Win32 message pump when the previous navigation is still in-flight.
+        let _ = v.eval(&format!("location.href={};", serde_json::json!(raw)));
         log_info!("mt", "browser_navigate done pane={}", id);
     });
     Ok(())
