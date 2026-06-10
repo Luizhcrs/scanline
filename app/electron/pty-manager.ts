@@ -19,8 +19,14 @@ export class PtyManager {
     command: string | null,
     cwd: string | null
   ): void {
-    const resolvedShell = shell || process.env.COMSPEC || 'cmd.exe';
-    const args = command !== null ? ['/c', command] : [];
+    const resolvedShell = shell || (
+      process.platform === 'win32'
+        ? (process.env.COMSPEC || 'cmd.exe')
+        : (process.env.SHELL || '/bin/zsh')
+    );
+    const args = command !== null
+      ? (process.platform === 'win32' ? ['/c', command] : ['-c', command])
+      : [];
     const resolvedCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
 
     const pty = nodePty.spawn(resolvedShell, args, {

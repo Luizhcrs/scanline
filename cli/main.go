@@ -18,15 +18,54 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
 )
 
-const pipePath = `\\.\pipe\scanline`
-
 var reqCounter uint64
+
+func socketPath() string {
+	if runtime.GOOS == "windows" {
+		return `\\.\pipe\scanline`
+	}
+	return fmt.Sprintf("%s/scanline-%d.sock", os.TempDir(), os.Getuid())
+}
+
+func openPipe() (io.ReadWriteCloser, error) {
+	p := socketPath()
+	if runtime.GOOS == "windows" {
+		f, err := os.OpenFile(p, os.O_RDWR, 0)
+		if err != nil {
+			return nil, fmt.Errorf("Scanline not running? cannot open %s: %w", p, err)
+		}
+		return f, nil
+	}
+	conn, err := net.Dial("unix", p)
+	if err != nil {
+		return nil, fmt.Errorf("Scanline not running? cannot connect to %s: %w", p, err)
+	}
+	return conn, nil
+}
+
+func userHome() string {
+	if runtime.GOOS == "windows" {
+		if h := os.Getenv("USERPROFILE"); h != "" {
+			return h
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	if h := os.Getenv("HOME"); h != "" {
+		return h
+	}
+	return "."
+}
 
 func nextID() string {
 	return fmt.Sprintf("%d-%d", os.Getpid(), atomic.AddUint64(&reqCounter, 1))
@@ -34,11 +73,11 @@ func nextID() string {
 
 // rpc sends one V2 request and returns the parsed reply.
 func rpc(method string, fields map[string]any) (map[string]any, error) {
-	f, err := os.OpenFile(pipePath, os.O_RDWR, 0)
+	conn, err := openPipe()
 	if err != nil {
-		return nil, fmt.Errorf("Scanline not running? cannot open %s: %w", pipePath, err)
+		return nil, err
 	}
-	defer f.Close()
+	defer conn.Close()
 
 	req := map[string]any{"id": nextID(), "method": method}
 	for k, v := range fields {
@@ -48,13 +87,13 @@ func rpc(method string, fields map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := f.Write(append(b, '\n')); err != nil {
+	if _, err := conn.Write(append(b, '\n')); err != nil {
 		return nil, err
 	}
 	// Capture the ReadString error. EOF without trailing newline is acceptable
 	// as long as we got some bytes (the server may omit the final newline).
 	// A blank line with a real error means the server closed the connection.
-	line, rdErr := bufio.NewReader(f).ReadString('\n')
+	line, rdErr := bufio.NewReader(conn).ReadString('\n')
 	if rdErr != nil && line == "" {
 		return nil, fmt.Errorf("Scanline closed the connection: %w", rdErr)
 	}

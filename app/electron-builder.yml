@@ -1,6 +1,9 @@
 appId: dev.luizrs.scanline
 productName: Scanline
 copyright: Copyright 2025 Luiz Henrique
+publish:
+  - provider: github
+    releaseType: draft
 directories:
   output: dist-installer
   buildResources: icons
@@ -9,18 +12,27 @@ files:
   - dist-electron/**/*
   - node_modules/**/*
   - "!node_modules/.cache"
+extraResources:
+  - from: icons
+    to: icons
 win:
   target:
     - target: nsis
       arch: [x64]
   icon: icons/icon.ico
+  extraResources:
+    - from: scanline-cli.exe
+      to: scanline-cli.exe
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-extraResources:
-  - from: scanline-cli.exe
-    to: scanline-cli.exe
-  - from: icons
-    to: icons
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  icon: icons/icon.icns
+  extraResources:
+    - from: scanline-cli
+      to: scanline-cli

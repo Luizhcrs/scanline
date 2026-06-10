@@ -237,7 +237,7 @@ func setupHooks(args []string) {
 	if project {
 		dir = filepath.Join(".", ".claude")
 	} else {
-		dir = filepath.Join(os.Getenv("USERPROFILE"), ".claude")
+		dir = filepath.Join(userHome(), ".claude")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "scanline:", err)
@@ -277,29 +277,28 @@ func setupHooks(args []string) {
 	}
 	fmt.Printf("installed Claude Code hooks -> %s\n", path)
 
-	profile := os.Getenv("USERPROFILE")
+	home := userHome()
 
-	if _, err := os.Stat(filepath.Join(profile, ".gemini")); err == nil {
+	if _, err := os.Stat(filepath.Join(home, ".gemini")); err == nil {
 		if err := setupGeminiHooks(self); err != nil {
 			fmt.Fprintf(os.Stderr, "scanline: gemini hooks warning: %v\n", err)
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(profile, ".factory")); err == nil {
+	if _, err := os.Stat(filepath.Join(home, ".factory")); err == nil {
 		if err := setupDroidHooks(self); err != nil {
 			fmt.Fprintf(os.Stderr, "scanline: droid hooks warning: %v\n", err)
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(profile, ".kimi-code")); err == nil {
+	if _, err := os.Stat(filepath.Join(home, ".kimi-code")); err == nil {
 		if err := setupKimiHooks(self); err != nil {
 			fmt.Fprintf(os.Stderr, "scanline: kimi hooks warning: %v\n", err)
 		}
 	}
 
 	// Antigravity CLI (agy): config lives in ~/.gemini/config/hooks.json.
-	// Detect by checking if `agy` is in PATH or ~/.gemini/config/ exists.
-	agyCfgDir := filepath.Join(profile, ".gemini", "config")
+	agyCfgDir := filepath.Join(home, ".gemini", "config")
 	if _, err := os.Stat(agyCfgDir); err == nil {
 		if err := setupAntigravityHooks(self); err != nil {
 			fmt.Fprintf(os.Stderr, "scanline: antigravity hooks warning: %v\n", err)
@@ -313,8 +312,8 @@ func setupHooks(args []string) {
 // PreInvocation, PostInvocation (→ running) and Stop (→ idle).
 // There is no Notification event in Antigravity CLI.
 func setupAntigravityHooks(self string) error {
-	profile := os.Getenv("USERPROFILE")
-	dir := filepath.Join(profile, ".gemini", "config")
+	home := userHome()
+	dir := filepath.Join(home, ".gemini", "config")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -352,8 +351,8 @@ func setupAntigravityHooks(self string) error {
 }
 
 func setupGeminiHooks(self string) error {
-	profile := os.Getenv("USERPROFILE")
-	dir := filepath.Join(profile, ".gemini")
+	home := userHome()
+	dir := filepath.Join(home, ".gemini")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -386,8 +385,8 @@ func setupGeminiHooks(self string) error {
 }
 
 func setupDroidHooks(self string) error {
-	profile := os.Getenv("USERPROFILE")
-	dir := filepath.Join(profile, ".factory")
+	home := userHome()
+	dir := filepath.Join(home, ".factory")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -420,8 +419,8 @@ func setupDroidHooks(self string) error {
 }
 
 func setupKimiHooks(self string) error {
-	profile := os.Getenv("USERPROFILE")
-	dir := filepath.Join(profile, ".kimi-code")
+	home := userHome()
+	dir := filepath.Join(home, ".kimi-code")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

@@ -7,7 +7,42 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  build-mac:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install deps
+        working-directory: app
+        run: npm ci
+
+      - name: Rebuild native modules (node-pty)
+        working-directory: app
+        run: ./node_modules/.bin/electron-rebuild
+
+      - name: Build and package (macOS DMG)
+        working-directory: app
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Scanline-mac
+          path: app/dist-installer/*.dmg
+
+  build-win:
     runs-on: windows-latest
     permissions:
       contents: write
@@ -22,28 +57,55 @@ jobs:
         with:
           go-version: stable
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app/src-tauri -> target
-
-      - name: Install frontend deps
+      - name: Install deps
         working-directory: app
         run: npm ci
 
-      - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v0
+      - name: Rebuild native modules (node-pty)
+        working-directory: app
+        run: ./node_modules/.bin/electron-rebuild
+        shell: bash
+
+      - name: Build and package (Windows installer)
+        working-directory: app
+        run: npm run dist
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: app
-          tagName: ${{ github.ref_name }}
-          releaseName: "Scanline ${{ github.ref_name }}"
-          releaseBody: "Windows installer below. Existing installs update automatically on next launch."
-          releaseDraft: true
-          prerelease: false
-          args: --config src-tauri/tauri.release.conf.json
+          name: Scanline-win
+          path: app/dist-installer/*.exe
+
+  publish:
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Scanline-mac
+          path: artifacts/mac
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Scanline-win
+          path: artifacts/win
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: "Scanline ${{ github.ref_name }}"
+          body: |
+            ## Downloads
+            - **macOS** (Apple Silicon + Intel): `.dmg`
+            - **Windows**: `.exe` installer
+          files: |
+            artifacts/mac/*.dmg
+            artifacts/win/*.exe

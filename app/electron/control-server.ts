@@ -1,7 +1,11 @@
 import * as net from 'net';
+import * as fs from 'fs';
+import * as os from 'os';
 import { BrowserWindow } from 'electron';
 
-const pipePath = '\\\\.\\pipe\\scanline';
+const pipePath = process.platform === 'win32'
+  ? '\\\\.\\pipe\\scanline'
+  : `${os.tmpdir()}/scanline-${process.getuid!()}.sock`;
 
 export class ControlServer {
   private win: BrowserWindow;
@@ -55,6 +59,9 @@ export class ControlServer {
   }
 
   start(): void {
+    if (process.platform !== 'win32') {
+      try { fs.unlinkSync(pipePath); } catch {}
+    }
     this.server.listen(pipePath);
   }
 

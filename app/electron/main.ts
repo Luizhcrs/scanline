@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, clipboard, shell, Notification } from 'electron';
 import * as path from 'path';
-import { exec } from 'child_process';
+import * as fs from 'fs';
+import { exec, execFile } from 'child_process';
 import { PtyManager } from './pty-manager';
 import { BrowserManager } from './browser-manager';
 import { ControlServer } from './control-server';
@@ -8,7 +9,22 @@ import { AppConfig } from './app-config';
 
 const isDev = !app.isPackaged;
 
-app.setAppUserModelId('com.scanline.app');
+app.name = 'Scanline';
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.scanline.app');
+}
+
+function getAppVersion(): string {
+  try {
+    const pkgPath = isDev
+      ? path.join(__dirname, '../package.json')
+      : path.join(app.getAppPath(), 'package.json');
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version ?? app.getVersion();
+  } catch {
+    return app.getVersion();
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -24,7 +40,7 @@ function grepDir(p: { query: string; dir: string }): Promise<Array<{ file: strin
   return new Promise((resolve) => {
     const results: Array<{ file: string; line: number; text: string }> = [];
 
-    exec(`rg --json -m 50 "${p.query.replace(/"/g, '\\"')}" "${p.dir}"`, (err, stdout) => {
+    execFile('rg', ['--json', '-m', '50', p.query, p.dir], (err, stdout) => {
       if (!err || stdout) {
         const lines = stdout.split('\n');
         for (const line of lines) {
@@ -47,28 +63,33 @@ function grepDir(p: { query: string; dir: string }): Promise<Array<{ file: strin
         return;
       }
 
-      exec(
-        `findstr /s /i /n "${p.query.replace(/"/g, '\\"')}" "${p.dir}\\*.*"`,
-        (err2, stdout2) => {
-          const lines2 = stdout2.split('\n');
-          for (const line of lines2) {
-            if (results.length >= 200) break;
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            const match = trimmed.match(/^(.+?):(\d+):(.*)/);
-            if (match) {
-              results.push({ file: match[1], line: parseInt(match[2], 10), text: match[3] });
-            }
+      const fallbackBin = process.platform === 'win32' ? 'findstr' : 'grep';
+      const fallbackArgs = process.platform === 'win32'
+        ? ['/s', '/i', '/n', p.query, `${p.dir}\\*.*`]
+        : ['-rn', '--include=*', '-m', '50', p.query, p.dir];
+      execFile(fallbackBin, fallbackArgs, (_err2, stdout2) => {
+        const lines2 = stdout2.split('\n');
+        for (const line of lines2) {
+          if (results.length >= 200) break;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const match = trimmed.match(/^(.+?):(\d+):(.*)/);
+          if (match) {
+            results.push({ file: match[1], line: parseInt(match[2], 10), text: match[3] });
           }
-          resolve(results);
         }
-      );
+        resolve(results);
+      });
     });
   });
 }
 
 function repoInfo(p: { dir: string }): Promise<{ branch: string; dirty: boolean; commit: string }> {
   return new Promise((resolve) => {
+    if (!p?.dir) {
+      resolve({ branch: '', dirty: false, commit: '' });
+      return;
+    }
     const d = p.dir.replace(/"/g, '\\"');
     let branch = '';
     let dirty = false;
@@ -99,33 +120,34 @@ function repoInfo(p: { dir: string }): Promise<{ branch: string; dirty: boolean;
 
 function panePorts(p: { surfaceId: number }): Promise<number[]> {
   return new Promise((resolve) => {
-    exec('netstat -ano -p TCP', (err, stdout) => {
-      if (err) {
-        resolve([]);
-        return;
-      }
-
-      exec('tasklist /fo csv /nh', (err2, taskout) => {
+    if (process.platform === 'win32') {
+      exec('netstat -ano -p TCP', (err, stdout) => {
+        if (err) { resolve([]); return; }
         const pidStr = String(p.surfaceId);
         const ports: number[] = [];
-
-        const lines = stdout.split('\n');
-        for (const line of lines) {
+        for (const line of stdout.split('\n')) {
           const parts = line.trim().split(/\s+/);
           if (parts.length < 5) continue;
-          const pid = parts[parts.length - 1];
-          if (pid === pidStr) {
-            const addrPort = parts[1];
-            const portMatch = addrPort.match(/:(\d+)$/);
-            if (portMatch) {
-              ports.push(parseInt(portMatch[1], 10));
-            }
+          if (parts[parts.length - 1] === pidStr) {
+            const m = parts[1].match(/:(\d+)$/);
+            if (m) ports.push(parseInt(m[1], 10));
           }
         }
-
         resolve(ports);
       });
-    });
+    } else {
+      exec(`lsof -i TCP -n -P -sTCP:LISTEN -a -p ${p.surfaceId}`, (err, stdout) => {
+        if (err) { resolve([]); return; }
+        const ports: number[] = [];
+        for (const line of stdout.split('\n').slice(1)) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 9) continue;
+          const m = parts[8].match(/:(\d+)$/);
+          if (m) ports.push(parseInt(m[1], 10));
+        }
+        resolve(ports);
+      });
+    }
   });
 }
 
@@ -134,9 +156,10 @@ function checkForUpdate(): Promise<null> {
 }
 
 function createWindow(): BrowserWindow {
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
   const iconPath = isDev
-    ? path.join(__dirname, '../icons/icon.ico')
-    : path.join(process.resourcesPath, 'icons/icon.ico');
+    ? path.join(__dirname, '../icons/', iconFile)
+    : path.join(process.resourcesPath, 'icons/', iconFile);
   const w = new BrowserWindow({
     width: 1100,
     height: 700,
@@ -167,6 +190,7 @@ function createWindow(): BrowserWindow {
     ptyMgr.closeAll();
     browserMgr.closeAll();
     ctrlSrv.stop();
+    win = null;
   });
 
   return w;
@@ -179,7 +203,28 @@ app.on('second-instance', () => {
   }
 });
 
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (!win) {
+    win = createWindow();
+    ptyMgr = new PtyManager(win);
+    browserMgr = new BrowserManager(win);
+    ctrlSrv = new ControlServer(win);
+    ctrlSrv.start();
+  }
+});
+
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    const dockIcon = isDev
+      ? path.join(__dirname, '../icons/icon.png')
+      : path.join(process.resourcesPath, 'icons/icon.png');
+    try { app.dock.setIcon(dockIcon); } catch {}
+  }
+
   win = createWindow();
 
   ptyMgr = new PtyManager(win);
@@ -216,7 +261,7 @@ app.whenReady().then(() => {
   ipcMain.on('app:open-url', (_, u) => shell.openExternal(u));
   ipcMain.on('control:ready', () => {});
   ipcMain.on('control:reply', (_, p) => ctrlSrv.reply(p.id, p.response));
-  ipcMain.on('app:version', (e) => { e.returnValue = app.getVersion(); });
+  ipcMain.on('app:version', (e) => { e.returnValue = getAppVersion(); });
 
   ipcMain.handle('clipboard:read', () => clipboard.readText());
   ipcMain.handle('clipboard:write', (_, text) => { clipboard.writeText(text); });
