@@ -1,9 +1,6 @@
 appId: dev.luizrs.scanline
 productName: Scanline
 copyright: Copyright 2025 Luiz Henrique
-publish:
-  - provider: github
-    releaseType: draft
 directories:
   output: dist-installer
   buildResources: icons
