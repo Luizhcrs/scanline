@@ -218,11 +218,8 @@ app.on('activate', () => {
 });
 
 app.whenReady().then(() => {
-  if (process.platform === 'darwin') {
-    const dockIcon = isDev
-      ? path.join(__dirname, '../icons/icon.png')
-      : path.join(process.resourcesPath, 'icons/icon.png');
-    try { app.dock.setIcon(dockIcon); } catch {}
+  if (process.platform === 'darwin' && isDev) {
+    try { app.dock.setIcon(path.join(__dirname, '../icons/icon.png')); } catch {}
   }
 
   win = createWindow();
