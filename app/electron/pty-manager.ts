@@ -21,7 +21,7 @@ export class PtyManager {
   ): void {
     const resolvedShell = shell || (
       process.platform === 'win32'
-        ? (process.env.COMSPEC || 'cmd.exe')
+        ? (process.env.SCANLINE_SHELL || 'powershell.exe')
         : (process.env.SHELL || '/bin/zsh')
     );
     const args = command !== null
