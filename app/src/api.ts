@@ -31,8 +31,8 @@ export async function invoke<T = unknown>(command: string, params?: Record<strin
     case 'control_frontend_ready': api.controlFrontendReady(); return undefined as T;
     // Search
     case 'grep_dir':    return api.grepDir(params) as Promise<T>;
-    case 'repo_info':   return api.repoInfo(params) as Promise<T>;
-    case 'pane_ports':  return api.panePorts(params) as Promise<T>;
+    case 'repo_info':   return api.repoInfo({ dir: params?.['cwd'] }) as Promise<T>;
+    case 'pane_ports':  return api.panePorts({ surfaceId: params?.['id'] }) as Promise<T>;
     default: throw new Error('unknown command: ' + command);
   }
 }
