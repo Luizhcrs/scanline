@@ -38,12 +38,16 @@ export class PtyManager {
     });
 
     pty.onData((data) => {
-      this.win.webContents.send('pty:data:' + id, data);
+      if (!this.win.webContents.isDestroyed()) {
+        this.win.webContents.send('pty:data:' + id, data);
+      }
     });
 
     pty.onExit(() => {
       this.ptys.delete(id);
-      this.win.webContents.send('pty:exit:' + id);
+      if (!this.win.webContents.isDestroyed()) {
+        this.win.webContents.send('pty:exit:' + id);
+      }
     });
 
     this.ptys.set(id, pty);
