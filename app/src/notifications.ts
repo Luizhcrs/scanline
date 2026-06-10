@@ -59,6 +59,15 @@ export class NotificationStore {
 
   /** Record a notification and ring its pane. */
   add(leafId: number, title: string, body: string, wsId = 0, wsTitle = ""): void {
+    const existing = this.items.find(
+      (n) => n.leafId === leafId && !n.read && n.title === title && n.body === body,
+    );
+    if (existing) {
+      existing.ts = Date.now();
+      this.render();
+      this.onChange?.();
+      return;
+    }
     this.items.unshift({
       id: this.nextId++,
       leafId,
