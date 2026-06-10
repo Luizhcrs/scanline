@@ -357,7 +357,7 @@ export class SettingsPanel {
 
     const logo = document.createElement("img");
     logo.className = "settings-about-logo";
-    logo.src = "/logo-128.png";
+    logo.src = "./logo-128.png";
     logo.alt = "Scanline";
 
     const name = document.createElement("div");

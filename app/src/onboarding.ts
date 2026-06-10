@@ -50,7 +50,7 @@ function buildSlides(pt: boolean): Slide[] {
         const wrap = document.createElement("div");
         wrap.className = "ob-logo-wrap";
         const img = document.createElement("img");
-        img.src = "/logo-128.png";
+        img.src = "./logo-128.png";
         img.alt = "Scanline";
         img.className = "ob-logo";
         wrap.append(img);
