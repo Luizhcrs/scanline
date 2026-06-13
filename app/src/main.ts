@@ -32,18 +32,20 @@ const newCommandLeaf = (command: string) =>
 const newBrowserLeaf = (url?: string) =>
   new PaneContainer(new BrowserPane(url), () => new Pane());
 
+const isMac = (window as any).scanline.getPlatform() === 'darwin';
+
 /** Default chords for the rebindable actions (overridable via config). */
 const DEFAULT_BINDINGS: Record<string, string> = {
-  palette: "ctrl+shift+p",
-  switcher: "ctrl+p",
-  find: "ctrl+f",
-  findInDir: "ctrl+shift+f",
-  newWorkspace: "ctrl+n",
-  newTab: "ctrl+t",
-  settings: "ctrl+,",
-  minimal: "ctrl+shift+m",
+  palette: isMac ? "meta+shift+p" : "ctrl+shift+p",
+  switcher: isMac ? "meta+p" : "ctrl+p",
+  find: isMac ? "meta+f" : "ctrl+f",
+  findInDir: isMac ? "meta+shift+f" : "ctrl+shift+f",
+  newWorkspace: isMac ? "meta+n" : "ctrl+n",
+  newTab: isMac ? "meta+t" : "ctrl+t",
+  settings: isMac ? "meta+," : "ctrl+,",
+  minimal: isMac ? "meta+shift+m" : "ctrl+shift+m",
   fullscreen: "f11",
-  help: "ctrl+/",
+  help: isMac ? "meta+/" : "ctrl+/",
 };
 
 /** Recreate a single surface from its restore spec. */
@@ -70,6 +72,8 @@ class PlaceholderPane implements PaneLike {
   focus(): void {}
   blur(): void {}
   refit(): void {}
+  setVisible(): void {}
+  serializeSurface(): SurfaceSpec { return { kind: "terminal" }; }
   dispose(): Promise<void> { return Promise.resolve(); }
 }
 
@@ -218,6 +222,14 @@ class App {
 
     this.installResizer();
     this.installContextMenu();
+    // macOS: add body classes for platform-specific CSS
+    if (isMac) {
+      document.body.classList.add("darwin", "vibrancy");
+    }
+    // Listen for OS theme changes to update terminal themes.
+    (window as any).scanline.onThemeChange((dark: boolean) => {
+      this.updateTerminalThemes(dark);
+    });
     // Native browser webviews paint above all DOM overlays; hide them while any
     // overlay (settings, help, palette, menu, feed) is open, restore after.
     // Track the state so a workspace switch mid-overlay keeps browsers hidden
@@ -391,8 +403,7 @@ class App {
       // when nothing has actually changed.
       const json = JSON.stringify(this.serializeSession());
       if (json !== this.lastSaved) {
-        this.lastSaved = json;
-        void invoke("save_session", { json });
+        this.saveSession();
       }
     }, 8000);
     // Flush one save when the window goes to background so any mutations that
@@ -401,8 +412,7 @@ class App {
       if (!document.hidden) return;
       const json = JSON.stringify(this.serializeSession());
       if (json !== this.lastSaved) {
-        this.lastSaved = json;
-        void invoke("save_session", { json });
+        this.saveSession();
       }
     });
   }
@@ -429,49 +439,86 @@ class App {
     card.appendChild(title);
     const b = (name: string) => config().keybindings[name] || DEFAULT_BINDINGS[name];
     const pt = getLang() === "pt";
+
+    const pretty = (s: string) => {
+      const res = s
+        .replace(/ctrl/g, isMac ? "Cmd" : "Ctrl")
+        .replace(/meta/g, isMac ? "Cmd" : "Meta")
+        .replace(/alt/g, isMac ? "Opt" : "Alt")
+        .replace(/shift/g, "Shift");
+      return res
+        .split("+")
+        .map((p) => (p.length > 1 ? p[0].toUpperCase() + p.slice(1) : p.toUpperCase()))
+        .join("+");
+    };
+
     const SECTIONS: Array<[string, Array<[string, string]>]> = [
-      [pt ? "Geral" : "General", [
-        [b("palette"),    pt ? "Paleta de comandos"           : "Command palette"],
-        [b("switcher"),   pt ? "Trocar área / painel"         : "Switch workspace / pane"],
-        ["Ctrl+/",        pt ? "Esta ajuda"                   : "This help"],
-        [b("settings"),   pt ? "Configurações"                : "Settings"],
-        [b("minimal"),    pt ? "Modo mínimo"                  : "Minimal mode"],
-        [b("fullscreen"), pt ? "Tela cheia"                   : "Fullscreen"],
-        ["Ctrl+B",        pt ? "Alternar barra lateral"       : "Toggle sidebar"],
-        [b("find"),       pt ? "Buscar"                       : "Find"],
-        [b("findInDir"),  pt ? "Buscar no diretório"          : "Find in directory"],
-      ]],
-      [pt ? "Áreas de trabalho" : "Workspaces", [
-        [b("newWorkspace"), pt ? "Nova área de trabalho"              : "New workspace"],
-        ["Alt+1..8",        pt ? "Ir para área (Alt+9 = última)"     : "Jump to workspace (Alt+9 = last)"],
-        ["Alt+Shift+, / .", pt ? "Anterior / próxima"                : "Previous / next workspace"],
-      ]],
-      [pt ? "Painéis e divisões" : "Panes & splits", [
-        ["Alt+Shift+Right", pt ? "Dividir à direita"       : "Split right"],
-        ["Alt+Shift+Down",  pt ? "Dividir abaixo"          : "Split down"],
-        ["Alt+Shift+B",     pt ? "Abrir painel navegador"  : "Open browser pane"],
-        ["Alt+Arrows",      pt ? "Mover foco"              : "Move focus between panes"],
-        ["Alt+Shift+Z",     pt ? "Zoom no painel"          : "Zoom pane"],
-        ["Alt+Shift+E",     pt ? "Igualar divisões"        : "Equalize splits"],
-        ["Ctrl+Shift+H",    pt ? "Piscar painel"           : "Flash focused pane"],
-        ["Ctrl+Shift+W",    pt ? "Fechar painel"           : "Close pane"],
-      ]],
-      [pt ? "Abas" : "Tabs", [
-        [b("newTab"),                   pt ? "Nova aba de terminal"  : "New terminal tab"],
-        ["Ctrl+W",                      pt ? "Fechar aba"            : "Close tab"],
-        ["Ctrl+Tab / Ctrl+Shift+Tab",   pt ? "Próxima / anterior"   : "Next / previous tab"],
-        ["Ctrl+1..9",                   pt ? "Ir para aba"          : "Jump to tab"],
-      ]],
-      ["Terminal", [
-        ["Ctrl+Shift+K",        pt ? "Limpar histórico"        : "Clear scrollback"],
-        ["Ctrl+= / Ctrl+- / Ctrl+0", pt ? "Tamanho da fonte"  : "Font size (browser: page zoom)"],
-        ["Ctrl+Shift+C / V",    pt ? "Copiar / colar"          : "Copy / paste"],
-        ["Ctrl+Shift+A",        pt ? "Selecionar tudo"         : "Select all"],
-      ]],
-      [pt ? "Notificações" : "Notifications", [
-        ["Alt+Shift+N", pt ? "Painel de notificações" : "Notifications panel"],
-        ["Alt+Shift+U", pt ? "Última não lida"        : "Jump to latest unread"],
-      ]],
+      [
+        pt ? "Geral" : "General",
+        [
+          [pretty(b("palette")), pt ? "Paleta de comandos" : "Command palette"],
+          [pretty(b("switcher")), pt ? "Trocar área / painel" : "Switch workspace / pane"],
+          [pretty(isMac ? "meta+/" : "ctrl+/"), pt ? "Esta ajuda" : "This help"],
+          [pretty(b("settings")), pt ? "Configurações" : "Settings"],
+          [pretty(b("minimal")), pt ? "Modo mínimo" : "Minimal mode"],
+          [pretty(b("fullscreen")), pt ? "Tela cheia" : "Fullscreen"],
+          [pretty(isMac ? "meta+b" : "ctrl+b"), pt ? "Alternar barra lateral" : "Toggle sidebar"],
+          [pretty(b("find")), pt ? "Buscar" : "Find"],
+          [pretty(b("findInDir")), pt ? "Buscar no diretório" : "Find in directory"],
+        ],
+      ],
+      [
+        pt ? "Áreas de trabalho" : "Workspaces",
+        [
+          [pretty(b("newWorkspace")), pt ? "Nova área de trabalho" : "New workspace"],
+          [pretty("alt+1..8"), pt ? "Ir para área (Alt+9 = última)" : "Jump to workspace (Alt+9 = last)"],
+          [pretty("alt+shift+, / ."), pt ? "Anterior / próxima" : "Previous / next workspace"],
+        ],
+      ],
+      [
+        pt ? "Painéis e divisões" : "Panes & splits",
+        [
+          [pretty("alt+shift+right"), pt ? "Dividir à direita" : "Split right"],
+          [pretty("alt+shift+down"), pt ? "Dividir abaixo" : "Split down"],
+          [pretty("alt+shift+b"), pt ? "Abrir painel navegador" : "Open browser pane"],
+          [pretty("alt+arrows"), pt ? "Mover foco" : "Move focus between panes"],
+          [pretty("alt+shift+z"), pt ? "Zoom no painel" : "Zoom pane"],
+          [pretty("alt+shift+e"), pt ? "Igualar divisões" : "Equalize splits"],
+          [pretty(isMac ? "meta+shift+h" : "ctrl+shift+h"), pt ? "Piscar painel" : "Flash focused pane"],
+          [pretty(isMac ? "meta+shift+w" : "ctrl+shift+w"), pt ? "Fechar painel" : "Close pane"],
+        ],
+      ],
+      [
+        pt ? "Abas" : "Tabs",
+        [
+          [pretty(b("newTab")), pt ? "Nova aba de terminal" : "New terminal tab"],
+          [pretty(isMac ? "meta+w" : "ctrl+w"), pt ? "Fechar aba" : "Close tab"],
+          [
+            pretty(isMac ? "meta+tab / meta+shift+tab" : "ctrl+tab / ctrl+shift+tab"),
+            pt ? "Próxima / anterior" : "Next / previous tab",
+          ],
+          [pretty(isMac ? "meta+1..9" : "ctrl+1..9"), pt ? "Ir para aba" : "Jump to tab"],
+        ],
+      ],
+      [
+        "Terminal",
+        [
+          [pretty(isMac ? "meta+shift+k" : "ctrl+shift+k"), pt ? "Limpar histórico" : "Clear scrollback"],
+          [
+            pretty(isMac ? "meta+= / meta+- / meta+0" : "ctrl+= / ctrl+- / ctrl+0"),
+            pt ? "Tamanho da fonte" : "Font size (browser: page zoom)",
+          ],
+          [pretty(isMac ? "meta+shift+c / v" : "ctrl+shift+c / v"), pt ? "Copiar / colar" : "Copy / paste"],
+          [pretty(isMac ? "meta+shift+a" : "ctrl+shift+a"), pt ? "Selecionar tudo" : "Select all"],
+        ],
+      ],
+      [
+        pt ? "Notificações" : "Notifications",
+        [
+          [pretty("alt+shift+n"), pt ? "Painel de notificações" : "Notifications panel"],
+          [pretty("alt+shift+u"), pt ? "Última não lida" : "Jump to latest unread"],
+        ],
+      ],
     ];
     for (const [heading, rows] of SECTIONS) {
       const h = document.createElement("div");
@@ -496,10 +543,8 @@ class App {
     pushOverlay("help");
   }
 
-  private fullscreen = false;
   private async toggleFullscreen(): Promise<void> {
-    this.fullscreen = !this.fullscreen;
-    // Window fullscreen is handled by the main process in Electron.
+    (window as any).scanline.fullscreen();
   }
 
   /** Re-read scanline.json and apply it live (UI font + every terminal's
@@ -530,6 +575,17 @@ class App {
       }
     }
     requestAnimationFrame(() => this.activeLayout.refitAll());
+  }
+
+  /** Update all terminal themes when the OS dark/light mode changes. */
+  private updateTerminalThemes(dark: boolean): void {
+    for (const w of this.workspaces) {
+      for (const c of w.layout.panes()) {
+        for (const s of c.allSurfaces ?? [c]) {
+          if (s.kind === "terminal") (s as Pane).applyTheme(dark);
+        }
+      }
+    }
   }
 
   /** Toggle minimal mode (hide sidebar + tab bars) and persist it. */
@@ -673,7 +729,7 @@ class App {
     void this.refreshMeta();
   }
 
-  async closeWorkspace(id: number): Promise<void> {
+  private async closeWorkspace(id: number): Promise<void> {
     const i = this.workspaces.findIndex((w) => w.id === id);
     if (i < 0 || this.workspaces.length === 1) return; // keep at least one
     const ws = this.workspaces[i];
@@ -687,6 +743,13 @@ class App {
     if (this.active >= this.workspaces.length) this.active = this.workspaces.length - 1;
     else if (i <= this.active && this.active > 0) this.active--;
     this.selectWorkspace(this.active);
+    this.saveSession();
+  }
+
+  private saveSession(): void {
+    const json = JSON.stringify(this.serializeSession());
+    this.lastSaved = json;
+    void invoke("save_session", { json });
   }
 
   nextWorkspace(): void {
@@ -768,62 +831,127 @@ class App {
   }
 
   private renderSidebar(): void {
-    const rows = this.workspaces.map((w, i) => {
-      const row = document.createElement("div");
-      row.className = "ws-row" + (i === this.active ? " active" : "");
-      row.dataset.wsId = String(w.id);
-      row.onclick = () => this.selectWorkspace(i);
+    const existing = this.sidebar.querySelectorAll<HTMLElement>(".ws-row");
+    const existingMap = new Map<string, HTMLElement>();
+    existing.forEach((el) => existingMap.set(el.dataset.wsId || "", el));
 
-      const top = document.createElement("div");
-      top.className = "ws-top";
-      const label = document.createElement("span");
-      label.className = "ws-label";
-      label.textContent = w.title;
-      label.title = t("ws.renameHint");
-      label.ondblclick = (e) => {
-        e.stopPropagation();
-        this.beginWsRename(w, label);
-      };
-      top.append(label);
-      const unread = this.notifs.unreadForWs(w.id);
-      if (unread > 0) {
-        const badge = document.createElement("span");
-        badge.className = "ws-badge";
-        badge.textContent = String(unread);
-        top.append(badge);
-      }
-      if (this.workspaces.length > 1) {
-        const x = document.createElement("button");
-        x.className = "ws-close";
-        x.textContent = "✕";
-        x.onclick = (e) => {
-          e.stopPropagation();
-          this.closeWorkspace(w.id);
-        };
-        top.append(x);
-      }
-      row.append(top);
+    const fragment = document.createDocumentFragment();
+    const seenIds = new Set<string>();
 
-      // Metadata line: cwd · branch* · :ports · PR
-      const m = this.meta.get(w.id);
-      if (m && (m.cwd || m.branch)) {
-        const meta = document.createElement("div");
-        meta.className = "ws-meta";
-        const parts: string[] = [];
-        if (m.cwd) parts.push(m.cwd.replace(/\/+$/, "").split(/[\\/]/).pop() || m.cwd);
-        if (m.branch) parts.push(`⎇ ${m.branch}${m.dirty ? "*" : ""}`);
-        if (m.ports && m.ports.length) parts.push(":" + m.ports.slice(0, 3).join(" :"));
-        if (m.pr) parts.push(`PR ${m.pr}`);
-        meta.textContent = parts.join("  ");
-        row.append(meta);
+    for (let i = 0; i < this.workspaces.length; i++) {
+      const w = this.workspaces[i];
+      const id = String(w.id);
+      seenIds.add(id);
+      let row = existingMap.get(id);
+
+      if (row) {
+        // Update existing row in place — no DOM destroy/recreate.
+        row.className = "ws-row" + (i === this.active ? " active" : "");
+        const label = row.querySelector<HTMLElement>(".ws-label");
+        if (label && label.textContent !== w.title) {
+          label.textContent = w.title;
+        }
+        // Update unread badge.
+        const existingBadge = row.querySelector<HTMLElement>(".ws-badge");
+        const unread = this.notifs.unreadForWs(w.id);
+        if (unread > 0) {
+          if (existingBadge) {
+            existingBadge.textContent = String(unread);
+          } else {
+            const badge = document.createElement("span");
+            badge.className = "ws-badge";
+            badge.textContent = String(unread);
+            row.querySelector(".ws-top")?.append(badge);
+          }
+        } else if (existingBadge) {
+          existingBadge.remove();
+        }
+        // Update close button visibility.
+        const existingClose = row.querySelector<HTMLElement>(".ws-close");
+        if (this.workspaces.length > 1 && !existingClose) {
+          const x = document.createElement("button");
+          x.className = "ws-close";
+          x.textContent = "✕";
+          x.onclick = (e) => { e.stopPropagation(); this.closeWorkspace(w.id); };
+          row.querySelector(".ws-top")?.append(x);
+        } else if (this.workspaces.length <= 1 && existingClose) {
+          existingClose.remove();
+        }
+        // Update metadata.
+        const m = this.meta.get(w.id);
+        let meta = row.querySelector<HTMLElement>(".ws-meta");
+        if (m && (m.cwd || m.branch)) {
+          const parts: string[] = [];
+          if (m.cwd) parts.push(m.cwd.replace(/\/+$/, "").split(/[\\/]/).pop() || m.cwd);
+          if (m.branch) parts.push(`⎇ ${m.branch}${m.dirty ? "*" : ""}`);
+          if (m.ports && m.ports.length) parts.push(":" + m.ports.slice(0, 3).join(" :"));
+          if (m.pr) parts.push(`PR ${m.pr}`);
+          const text = parts.join("  ");
+          if (!meta) {
+            meta = document.createElement("div");
+            meta.className = "ws-meta";
+            row.append(meta);
+          }
+          if (meta.textContent !== text) meta.textContent = text;
+        } else if (meta) {
+          meta.remove();
+        }
+        fragment.append(row);
+      } else {
+        // New workspace — build from scratch.
+        row = document.createElement("div");
+        row.className = "ws-row" + (i === this.active ? " active" : "");
+        row.dataset.wsId = id;
+        row.onclick = () => this.selectWorkspace(i);
+
+        const top = document.createElement("div");
+        top.className = "ws-top";
+        const label = document.createElement("span");
+        label.className = "ws-label";
+        label.textContent = w.title;
+        label.title = t("ws.renameHint");
+        label.ondblclick = (e) => { e.stopPropagation(); this.beginWsRename(w, label); };
+        top.append(label);
+        const unread = this.notifs.unreadForWs(w.id);
+        if (unread > 0) {
+          const badge = document.createElement("span");
+          badge.className = "ws-badge";
+          badge.textContent = String(unread);
+          top.append(badge);
+        }
+        if (this.workspaces.length > 1) {
+          const x = document.createElement("button");
+          x.className = "ws-close";
+          x.textContent = "✕";
+          x.onclick = (e) => { e.stopPropagation(); this.closeWorkspace(w.id); };
+          top.append(x);
+        }
+        row.append(top);
+
+        const m = this.meta.get(w.id);
+        if (m && (m.cwd || m.branch)) {
+          const meta = document.createElement("div");
+          meta.className = "ws-meta";
+          const parts: string[] = [];
+          if (m.cwd) parts.push(m.cwd.replace(/\/+$/, "").split(/[\\/]/).pop() || m.cwd);
+          if (m.branch) parts.push(`⎇ ${m.branch}${m.dirty ? "*" : ""}`);
+          if (m.ports && m.ports.length) parts.push(":" + m.ports.slice(0, 3).join(" :"));
+          if (m.pr) parts.push(`PR ${m.pr}`);
+          meta.textContent = parts.join("  ");
+          row.append(meta);
+        }
+        fragment.append(row);
       }
-      return row;
-    });
+    }
+
+    // Add button.
     const add = document.createElement("button");
     add.className = "ws-add";
     add.textContent = t("ws.add");
     add.onclick = () => this.newWorkspace();
-    this.sidebar.replaceChildren(...rows, add);
+    fragment.append(add);
+
+    this.sidebar.replaceChildren(fragment);
   }
 
   /** Inline-edit a workspace label. Enter saves, Escape cancels, blur saves. */
@@ -880,7 +1008,7 @@ class App {
     this.metaBusy = true;
     if (showLoading) this.setMetaLoading(true);
     try {
-      const info = await invoke<{ branch: string | null; dirty: boolean; pr: string | null }>(
+      const info = await invoke<{ branch: string; dirty: boolean; commit: string }>(
         "repo_info",
         { cwd },
       );
@@ -888,7 +1016,7 @@ class App {
         fs.kind === "terminal"
           ? await invoke<number[]>("pane_ports", { id: (fs as Pane).getPtyId() })
           : [];
-      const next = { cwd, branch: info.branch, dirty: info.dirty, pr: info.pr, ports };
+      const next = { cwd, branch: info.branch, dirty: info.dirty, pr: null as string | null, ports };
       // Re-validate: if the workspace was closed while the awaits were in flight
       // (closeWorkspace deletes meta and splices it out), drop the result —
       // otherwise meta.set re-creates the deleted entry and leaks it forever.
@@ -1087,7 +1215,13 @@ class App {
     // checked before the fixed shortcuts below. Defaults mirror the built-in
     // chords, so unconfigured behavior is unchanged but every action is now
     // remappable via scanline.json "keybindings".
-    const chord = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", key]
+    const chord = [
+      e.ctrlKey && "ctrl",
+      e.metaKey && "meta",
+      e.altKey && "alt",
+      e.shiftKey && "shift",
+      key,
+    ]
       .filter(Boolean)
       .join("+");
     const actions: Record<string, () => void> = {

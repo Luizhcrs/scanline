@@ -99,6 +99,17 @@ contextBridge.exposeInMainWorld('scanline', {
   getVersion(): string {
     return version
   },
+  getPlatform(): string {
+    return ipcRenderer.sendSync('app:platform')
+  },
+  isDarkTheme(): boolean {
+    return ipcRenderer.sendSync('app:theme')
+  },
+  onThemeChange(cb: (dark: boolean) => void): () => void {
+    const handler = (_: Electron.IpcRendererEvent, dark: boolean) => cb(dark)
+    ipcRenderer.on('theme:changed', handler)
+    return () => ipcRenderer.removeListener('theme:changed', handler)
+  },
   relaunch(): void {
     ipcRenderer.send('app:relaunch')
   },
@@ -152,4 +163,5 @@ contextBridge.exposeInMainWorld('scanline', {
   minimize(): void { ipcRenderer.send('win:minimize') },
   maximize(): void { ipcRenderer.send('win:maximize') },
   close(): void { ipcRenderer.send('win:close') },
+  fullscreen(): void { ipcRenderer.send('win:fullscreen') },
 })

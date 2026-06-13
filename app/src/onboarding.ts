@@ -1,5 +1,6 @@
 import { getLang } from "./i18n";
 import { config, saveConfig } from "./config";
+import { pushOverlay, popOverlay } from "./overlay";
 
 const LS_KEY = "scanline.onboardingSeen";
 
@@ -14,6 +15,10 @@ function markSeen(): void {
 export function resetOnboarding(): void {
   localStorage.removeItem(LS_KEY);
 }
+
+const isMac = (window as any).scanline?.getPlatform() === "darwin";
+const mod = isMac ? "Cmd" : "Ctrl";
+const alt = isMac ? "Opt" : "Alt";
 
 interface Slide {
   title: string;
@@ -66,18 +71,18 @@ function buildSlides(pt: boolean): Slide[] {
         kbdTable(
           pt
             ? [
-                ["Ctrl+N",        "Novo workspace"],
-                ["Alt+Shift+→",   "Dividir à direita"],
-                ["Alt+Shift+↓",   "Dividir abaixo"],
-                ["Ctrl+Shift+W",  "Fechar painel"],
-                ["Alt+Shift+Z",   "Zoom no painel"],
+                [`${mod}+N`,        "Novo workspace"],
+                [`${alt}+Shift+→`,  "Dividir à direita"],
+                [`${alt}+Shift+↓`,  "Dividir abaixo"],
+                [`${mod}+Shift+W`,  "Fechar painel"],
+                [`${alt}+Shift+Z`,  "Zoom no painel"],
               ]
             : [
-                ["Ctrl+N",        "New workspace"],
-                ["Alt+Shift+→",   "Split right"],
-                ["Alt+Shift+↓",   "Split down"],
-                ["Ctrl+Shift+W",  "Close pane"],
-                ["Alt+Shift+Z",   "Zoom pane"],
+                [`${mod}+N`,        "New workspace"],
+                [`${alt}+Shift+→`,  "Split right"],
+                [`${alt}+Shift+↓`,  "Split down"],
+                [`${mod}+Shift+W`,  "Close pane"],
+                [`${alt}+Shift+Z`,  "Zoom pane"],
               ]
         ),
     },
@@ -90,12 +95,12 @@ function buildSlides(pt: boolean): Slide[] {
         kbdTable(
           pt
             ? [
-                ["Alt+Shift+B", "Abrir painel de navegador"],
+                [`${alt}+Shift+B`, "Abrir painel de navegador"],
                 ["↗  (barra de URL)", "Abrir no navegador padrão"],
                 ["F12", "Abrir DevTools"],
               ]
             : [
-                ["Alt+Shift+B", "Open browser pane"],
+                [`${alt}+Shift+B`, "Open browser pane"],
                 ["↗  (URL bar)", "Open in default browser"],
                 ["F12", "Open DevTools"],
               ]
@@ -104,21 +109,21 @@ function buildSlides(pt: boolean): Slide[] {
     {
       title: pt ? "Pronto!" : "All Set!",
       subtitle: pt
-        ? "Pressione Alt+Shift+? para ver todos os atalhos. Configurações em Alt+Shift+,"
-        : "Press Alt+Shift+? for all shortcuts. Settings at Alt+Shift+,",
+        ? `Pressione ${mod}+/ para ver todos os atalhos. Configurações em ${mod}+,`
+        : `Press ${mod}+/ for all shortcuts. Settings at ${mod}+,`,
       body: () => {
         const wrap = document.createElement("div");
         wrap.className = "ob-ready-wrap";
         const lines: [string, string][] = pt
           ? [
-              ["Ctrl+/",       "Todos os atalhos"],
-              ["Ctrl+,",       "Configurações"],
-              ["Ctrl+Shift+P", "Paleta de comandos"],
+              [`${mod}/`,       "Todos os atalhos"],
+              [`${mod}+,`,      "Configurações"],
+              [`${mod}+Shift+P`, "Paleta de comandos"],
             ]
           : [
-              ["Ctrl+/",       "All shortcuts"],
-              ["Ctrl+,",       "Settings"],
-              ["Ctrl+Shift+P", "Command palette"],
+              [`${mod}/`,       "All shortcuts"],
+              [`${mod}+,`,      "Settings"],
+              [`${mod}+Shift+P`, "Command palette"],
             ];
         wrap.append(kbdTable(lines));
         return wrap;
@@ -128,6 +133,7 @@ function buildSlides(pt: boolean): Slide[] {
 }
 
 export function showOnboarding(onDone?: () => void): void {
+  pushOverlay("onboarding");
   const pt = getLang() === "pt";
   const slides = buildSlides(pt);
   let current = 0;
@@ -229,6 +235,7 @@ export function showOnboarding(onDone?: () => void): void {
   }
 
   function dismiss(): void {
+    popOverlay("onboarding");
     markSeen();
     saveConfig(config()); // persist default config so loadConfig() won't clear the flag on next launch
     card.style.transition = "transform 0.2s ease, opacity 0.2s ease";

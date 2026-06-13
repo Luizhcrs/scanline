@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { shell } from 'electron';
 
 function getDataDir(): string {
   if (process.platform === 'win32') {
@@ -18,8 +18,11 @@ const configPath = path.join(dataDir, 'scanline.json');
 const sessionPath = path.join(dataDir, 'session.json');
 
 export class AppConfig {
+  private ready: Promise<unknown>;
   constructor() {
-    fs.mkdir(dataDir, { recursive: true });
+    this.ready = fs.mkdir(dataDir, { recursive: true }).catch((e) => {
+      console.error("Failed to create config directory:", e);
+    });
   }
 
   async loadConfig(): Promise<string | null> {
@@ -49,12 +52,6 @@ export class AppConfig {
   }
 
   editConfig(): void {
-    if (process.platform === 'win32') {
-      exec('notepad.exe "' + configPath + '"');
-    } else if (process.platform === 'darwin') {
-      exec('open -t "' + configPath + '"');
-    } else {
-      exec('xdg-open "' + configPath + '"');
-    }
+    shell.openPath(configPath);
   }
 }

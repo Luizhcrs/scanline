@@ -77,6 +77,7 @@ export const en = {
   "palette.switcher": "Go to workspace / surface…",
   "palette.search": "Search…",
   "palette.find": "Find…",
+  "palette.empty": "No matching commands",
 
   // Pane container (tab strip)
   "pane.renameHint": "Double-click to rename",
@@ -194,6 +195,7 @@ export const pt: Messages = {
   "palette.switcher": "Ir para workspace / superfície…",
   "palette.search": "Buscar…",
   "palette.find": "Buscar…",
+  "palette.empty": "Nenhum comando encontrado",
 
   "pane.renameHint": "Clique duplo para renomear",
   "pane.newTabTitle": "Nova aba de terminal (Ctrl+T)",

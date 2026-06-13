@@ -2,20 +2,24 @@
   "name": "scanline",
   "private": true,
   "version": "2.0.0",
-  "description": "Windows-native terminal multiplexer + scriptable browser for AI coding agents",
+  "description": "Terminal multiplexer + scriptable browser for AI coding agents (macOS, Windows)",
   "license": "AGPL-3.0-only",
   "author": "Luiz <luizhcrs@gmail.com>",
   "type": "module",
   "main": "dist-electron/main.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
-    "dev:electron": "wait-on http://localhost:1420 && tsc -p tsconfig.electron.json && node -e \"const v=require('./package.json').version;require('fs').writeFileSync('dist-electron/package.json',JSON.stringify({type:'commonjs',version:v}))\" && electron dist-electron/main.js",
-    "build": "vite build && tsc -p tsconfig.electron.json && node -e \"const v=require('./package.json').version;require('fs').writeFileSync('dist-electron/package.json',JSON.stringify({type:'commonjs',version:v}))\" && npm run build:cli",
+    "dev:electron": "wait-on http://localhost:1420 && tsc -p tsconfig.electron.json && node scripts/write-dist-package.cjs && electron dist-electron/main.js",
+    "build": "vite build && tsc -p tsconfig.electron.json && node scripts/write-dist-package.cjs && npm run build:cli",
     "build:cli": "node -e \"const{execSync}=require('child_process');const ext=process.platform==='win32'?'.exe':'';execSync('go -C ../cli build -o ../app/scanline-cli'+ext+' .',{stdio:'inherit'})\"",
     "dist": "npm run build && electron-builder",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "echo 'ESLint not configured yet'"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

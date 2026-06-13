@@ -66,6 +66,7 @@ func runTmuxCompat(args []string) {
 	if len(args) == 0 {
 		os.Exit(0)
 	}
+	rpcFailed := false
 	switch args[0] {
 	case "split-window", "splitw":
 		dir, cmd := parseTmuxSplit(args[1:])
@@ -73,7 +74,7 @@ func runTmuxCompat(args []string) {
 		if cmd != "" {
 			m["command"] = cmd
 		}
-		sendQuiet("pane.split", m)
+		if !sendQuiet("pane.split", m) { rpcFailed = true }
 	case "select-pane", "selectp":
 		dir := ""
 		for _, a := range args[1:] {
@@ -89,12 +90,12 @@ func runTmuxCompat(args []string) {
 			}
 		}
 		if dir != "" {
-			sendQuiet("pane.focus", map[string]any{"dir": dir})
+			if !sendQuiet("pane.focus", map[string]any{"dir": dir}) { rpcFailed = true }
 		}
 	case "kill-pane", "killp":
-		sendQuiet("pane.close", nil)
+		if !sendQuiet("pane.close", nil) { rpcFailed = true }
 	case "resize-pane", "resizep":
-		sendQuiet("pane.resize", map[string]any{"delta": 0.05})
+		if !sendQuiet("pane.resize", map[string]any{"delta": 0.05}) { rpcFailed = true }
 	case "send-keys", "send":
 		// Each non-flag arg is a key: a key-name (Enter, C-c, Up, …) -> send_key,
 		// anything else -> literal send_text. Target the caller's pane (env).
@@ -107,10 +108,10 @@ func runTmuxCompat(args []string) {
 			}
 			if isKeyName(k) {
 				m["key"] = k
-				sendQuiet("surface.send_key", m)
+				if !sendQuiet("surface.send_key", m) { rpcFailed = true }
 			} else {
 				m["text"] = k
-				sendQuiet("surface.send_text", m)
+				if !sendQuiet("surface.send_text", m) { rpcFailed = true }
 			}
 		}
 	case "list-panes", "lsp":
@@ -145,21 +146,18 @@ func runTmuxCompat(args []string) {
 	os.Exit(0)
 }
 
-// set when an RPC fails so runTmuxCompat can exit non-zero (so an agent's tmux
-// call doesn't see success when nothing actually happened).
-var rpcFailed bool
-
-func sendQuiet(method string, fields map[string]any) {
+// sendQuiet sends an RPC silently; returns true on success.
+func sendQuiet(method string, fields map[string]any) bool {
 	resp, err := rpc(method, fields)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "scanline tmux-compat:", err)
-		rpcFailed = true
-		return
+		return false
 	}
 	if ok, _ := resp["ok"].(bool); !ok {
 		fmt.Fprintf(os.Stderr, "scanline tmux-compat: %v\n", resp["error"])
-		rpcFailed = true
+		return false
 	}
+	return true
 }
 
 func envSurface() any {

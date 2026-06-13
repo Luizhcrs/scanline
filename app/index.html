@@ -16,6 +16,9 @@
         margin: 0;
         background: #141414;
       }
+      @media (prefers-color-scheme: light) {
+        html, body { background: #f5f5f5; }
+      }
       #splash {
         position: fixed;
         inset: 0;
@@ -26,6 +29,9 @@
         font: 600 22px Consolas, monospace;
         letter-spacing: 2px;
         opacity: 0.6;
+      }
+      @media (prefers-color-scheme: light) {
+        #splash { color: #0066cc; }
       }
     </style>
     <script type="module" src="/src/main.ts" defer></script>

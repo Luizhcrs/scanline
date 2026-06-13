@@ -207,6 +207,11 @@ export class SettingsPanel {
         { value: "pt",   label: t("settings.langPt") },
         { value: "en",   label: t("settings.langEn") },
       ]),
+      theme:     mkSelect(c.ui.theme ?? "auto", [
+        { value: "auto",  label: getLang() === "pt" ? "Automático" : "Auto" },
+        { value: "dark",  label: getLang() === "pt" ? "Escuro" : "Dark" },
+        { value: "light", label: getLang() === "pt" ? "Claro" : "Light" },
+      ]),
       uiFont:    mk("text",     c.ui.fontFamily),
       minimal:          mk("checkbox", c.ui.minimal ? 1 : 0),
       tooltipShortcuts: mk("checkbox", c.ui.tooltipShortcuts ? 1 : 0),
@@ -254,8 +259,9 @@ export class SettingsPanel {
     const pt = getLang() === "pt";
 
     if (this.activeCategory === "appearance") {
-      section(pt ? "Idioma" : "Language");
+      section(pt ? "Aparência" : "Appearance");
       row(t("settings.language"), pt ? "Idioma da interface. Requer reinício para aplicar." : "UI language. Changing requires a restart.", fields.language);
+      row(pt ? "Tema" : "Theme", pt ? "Seguir o tema do sistema ou forçar claro/escuro." : "Follow system theme or force light/dark.", fields.theme);
       section(pt ? "Layout" : "Layout");
       row(t("settings.minimal"), pt ? "Ocultar barra lateral e abas para uma visão mais limpa." : "Hide sidebar and tab bars for a cleaner view.", fields.minimal);
     }
@@ -273,40 +279,49 @@ export class SettingsPanel {
     }
 
     if (this.activeCategory === "shortcuts") {
+      const isMac = (window as any).scanline.getPlatform() === "darwin";
+      const pretty = (s: string) => {
+        const res = s
+          .replace(/Ctrl/g, isMac ? "Cmd" : "Ctrl")
+          .replace(/Alt/g, isMac ? "Opt" : "Alt")
+          .replace(/Shift/g, "Shift");
+        return res;
+      };
+
       const SECTIONS: Array<[string, Array<[string, string]>]> = [
         [pt ? "Geral" : "General", [
-          ["Ctrl+Shift+P", pt ? "Paleta de comandos" : "Command palette"],
-          ["Ctrl+P", pt ? "Trocar workspace / painel" : "Switch workspace / pane"],
-          ["Ctrl+,", pt ? "Configurações" : "Settings"],
-          ["Ctrl+/", pt ? "Atalhos de teclado" : "Keyboard shortcuts"],
-          ["Ctrl+B", pt ? "Alternar barra lateral" : "Toggle sidebar"],
-          ["Ctrl+F", pt ? "Buscar" : "Find"],
+          [pretty("Ctrl+Shift+P"), pt ? "Paleta de comandos" : "Command palette"],
+          [pretty("Ctrl+P"), pt ? "Trocar workspace / painel" : "Switch workspace / pane"],
+          [pretty("Ctrl+,"), pt ? "Configurações" : "Settings"],
+          [pretty("Ctrl+/"), pt ? "Atalhos de teclado" : "Keyboard shortcuts"],
+          [pretty("Ctrl+B"), pt ? "Alternar barra lateral" : "Toggle sidebar"],
+          [pretty("Ctrl+F"), pt ? "Buscar" : "Find"],
           ["F11", pt ? "Tela cheia" : "Fullscreen"],
         ]],
         [pt ? "Áreas de trabalho" : "Workspaces", [
-          ["Ctrl+N", pt ? "Nova área de trabalho" : "New workspace"],
-          ["Alt+1..8", pt ? "Ir para área de trabalho" : "Go to workspace"],
-          ["Alt+Shift+, / .", pt ? "Área anterior / próxima" : "Previous / next workspace"],
+          [pretty("Ctrl+N"), pt ? "Nova área de trabalho" : "New workspace"],
+          [pretty("Alt+1..8"), pt ? "Ir para área de trabalho" : "Go to workspace"],
+          [pretty("Alt+Shift+, / ."), pt ? "Área anterior / próxima" : "Previous / next workspace"],
         ]],
         [pt ? "Painéis e divisões" : "Panes & splits", [
-          ["Alt+Shift+Right", pt ? "Dividir à direita" : "Split right"],
-          ["Alt+Shift+Down", pt ? "Dividir abaixo" : "Split down"],
-          ["Alt+Shift+B", pt ? "Abrir painel de navegador" : "Open browser pane"],
-          ["Alt+Setas", pt ? "Mover foco" : "Move focus"],
-          ["Alt+Shift+Z", pt ? "Zoom no painel" : "Zoom pane"],
-          ["Alt+Shift+E", pt ? "Igualar divisões" : "Equalize splits"],
-          ["Ctrl+Shift+W", pt ? "Fechar painel" : "Close pane"],
+          [pretty("Alt+Shift+Right"), pt ? "Dividir à direita" : "Split right"],
+          [pretty("Alt+Shift+Down"), pt ? "Dividir abaixo" : "Split down"],
+          [pretty("Alt+Shift+B"), pt ? "Abrir painel de navegador" : "Open browser pane"],
+          [pretty("Alt+Setas"), pt ? "Mover foco" : "Move focus"],
+          [pretty("Alt+Shift+Z"), pt ? "Zoom no painel" : "Zoom pane"],
+          [pretty("Alt+Shift+E"), pt ? "Igualar divisões" : "Equalize splits"],
+          [pretty("Ctrl+Shift+W"), pt ? "Fechar painel" : "Close pane"],
         ]],
         [pt ? "Abas" : "Tabs", [
-          ["Ctrl+T", pt ? "Nova aba de terminal" : "New terminal tab"],
-          ["Ctrl+W", pt ? "Fechar aba" : "Close tab"],
-          ["Ctrl+Tab", pt ? "Próxima aba" : "Next tab"],
-          ["Ctrl+1..9", pt ? "Ir para aba" : "Go to tab"],
+          [pretty("Ctrl+T"), pt ? "Nova aba de terminal" : "New terminal tab"],
+          [pretty("Ctrl+W"), pt ? "Fechar aba" : "Close tab"],
+          [pretty("Ctrl+Tab"), pt ? "Próxima aba" : "Next tab"],
+          [pretty("Ctrl+1..9"), pt ? "Ir para aba" : "Go to tab"],
         ]],
         ["Terminal", [
-          ["Ctrl+Shift+K", pt ? "Limpar histórico" : "Clear scrollback"],
-          ["Ctrl+= / Ctrl+-", pt ? "Tamanho da fonte" : "Font size"],
-          ["Ctrl+Shift+C / V", pt ? "Copiar / colar" : "Copy / paste"],
+          [pretty("Ctrl+Shift+K"), pt ? "Limpar histórico" : "Clear scrollback"],
+          [pretty("Ctrl+= / Ctrl+-"), pt ? "Tamanho da fonte" : "Font size"],
+          [pretty("Ctrl+Shift+C / V"), pt ? "Copiar / colar" : "Copy / paste"],
         ]],
       ];
       for (const [heading, rows] of SECTIONS) {
@@ -415,6 +430,7 @@ export class SettingsPanel {
     fields: ReturnType<typeof SettingsPanel.prototype.buildFields>,
   ): void {
     const lang = (fields.language as unknown as { value: string }).value as "auto" | "pt" | "en";
+    const theme = (fields.theme as unknown as { value: string }).value as "auto" | "light" | "dark";
     const next: ScanlineConfig = {
       terminal: {
         fontFamily: fields.termFont.value.trim() || c.terminal.fontFamily,
@@ -431,6 +447,7 @@ export class SettingsPanel {
         minimal: fields.minimal.checked,
         tooltipShortcuts: fields.tooltipShortcuts.checked,
         language: lang,
+        theme,
       },
       keybindings: c.keybindings,
     };
@@ -441,7 +458,7 @@ export class SettingsPanel {
       const current = await resolveLocale(c.ui.language);
       if (target === current) return;
       (window as any).scanline.relaunch();
-    });
+    }).catch((e) => console.error("settings save failed:", e));
     this.close();
   }
 }

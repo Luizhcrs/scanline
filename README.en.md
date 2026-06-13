@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/logo.png" width="120" alt="Scanline"></p>
 <h1 align="center">Scanline</h1>
-<p align="center">Windows and macOS terminal multiplexer + scriptable browser for AI coding agents.</p>
+<p align="center">Terminal multiplexer + scriptable browser for AI coding agents.</p>
 
 <p align="center"><a href="README.md">Portugues</a> &middot; <b>English</b></p>
 
@@ -8,7 +8,7 @@
 
 Scanline owns one window. Inside it you tile terminal panes and Chromium browser panes side by side, switch contexts with vertical-tab workspaces, and give agents a CDP-scriptable browser so they can snapshot, click, fill, and screenshot a live web app sitting next to the shell that built it.
 
-Windows and macOS: Electron + ConPTY. No WSL, no tmux, no WebView2 dependency.
+Native Windows: Electron + ConPTY. No WSL, no tmux, no WebView2 dependency.
 
 ## What it is and why
 
@@ -33,12 +33,12 @@ Key capabilities:
 | Tool | Difference |
 |---|---|
 | cmux (manaflow-ai) | macOS-only, GPL-3.0 |
-| wmux | closest Windows alternative — also has a CDP browser; Scanline differs on MIT license, local-first, and a native PT-BR/EN UI |
+| wmux | closest Windows alternative — also has a CDP browser; Scanline differs on AGPL-3.0 license, local-first, and a native PT-BR/EN UI |
 | Warp | AI is cloud-tied and shell-centric; no agent-driven browser pane |
 | Wave Terminal | Browser widget is read-only for the AI, not a CDP-scriptable target |
 | Windows Terminal / WezTerm / Tabby | No agent hooks, no scriptable browser, no PR-status sidebar |
 
-Scanline's position: cmux's agent-native UX brought to Windows and macOS — a CDP-scriptable Chromium browser, local-first, MIT, and a native PT-BR/EN UI.
+Scanline's position: cmux's agent-native UX brought to Windows and macOS — a CDP-scriptable Chromium browser, local-first, AGPL-3.0, and a native PT-BR/EN UI.
 
 ## Install
 
@@ -48,17 +48,10 @@ From the GitHub Releases page:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
-**Windows:**
 - `Scanline Setup <version>.exe` — NSIS installer (recommended). Sets up Start Menu shortcuts.
 - `Scanline <version>.exe` — portable. Run directly, no installation required.
 
 Because Scanline is not code-signed yet, Windows SmartScreen will show a "Windows protected your PC" dialog. Click "More info" and then "Run anyway" — the source is fully available in this repository.
-
-**macOS:**
-- `Scanline-<version>-arm64.dmg` — Apple Silicon (M1/M2/M3).
-- `Scanline-<version>-x64.dmg` — Intel.
-
-On macOS, Gatekeeper may block the app on first launch because it is not notarized yet. Go to System Settings > Privacy & Security and click "Open Anyway".
 
 In-app auto-update is not enabled yet. Grab new versions from the Releases page.
 
@@ -72,19 +65,16 @@ npm install
 npm run dist
 ```
 
-Output on Windows: `app\dist-installer\` (NSIS installer).
-Output on macOS: `app/dist-installer/` (DMG arm64 + x64).
+Output: `app\dist-installer\` (NSIS installer).
 
 Build the CLI separately:
 
-```sh
+```powershell
 cd cli
 go build
-# Windows: emits scanline.exe
-# macOS/Linux: emits scanline
 ```
 
-Put the binary on your PATH so agents and scripts can reach the running window.
+This emits `scanline.exe`. Put it on your PATH so agents and scripts can reach the running window.
 
 <details>
 <summary><b>Features</b></summary>
@@ -457,4 +447,4 @@ scanline/
 
 ## License
 
-MIT. Scanline is a clean-room reimplementation of the agent-native terminal UX pioneered by cmux (manaflow-ai/cmux, GPL-3.0). No code is copied from cmux; the behavior of the tmux-compat shim and agent integration is modeled, not derived. See [LICENSE](LICENSE).
+AGPL-3.0. Scanline is a clean-room reimplementation of the agent-native terminal UX pioneered by cmux (manaflow-ai/cmux, GPL-3.0). No code is copied from cmux; the behavior of the tmux-compat shim and agent integration is modeled, not derived. See [LICENSE](LICENSE).

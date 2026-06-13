@@ -168,8 +168,14 @@ export class CommandPalette {
     // stays the same size or shrinks. The synchronous render() that re-sorts
     // a fresh item list intentionally resets sel to 0 via open().
     this.sel = Math.max(0, Math.min(this.sel, this.filtered.length - 1));
-    this.listEl.replaceChildren(
-      ...this.filtered.map((it, i) => {
+    if (this.filtered.length === 0 && this.input.value.trim()) {
+      const empty = document.createElement("div");
+      empty.className = "palette-empty";
+      empty.textContent = t("palette.empty");
+      this.listEl.replaceChildren(empty);
+    } else {
+      this.listEl.replaceChildren(
+        ...this.filtered.map((it, i) => {
         const row = document.createElement("div");
         row.className = "palette-row" + (i === this.sel ? " sel" : "");
         const lbl = document.createElement("span");
@@ -186,6 +192,7 @@ export class CommandPalette {
         return row;
       }),
     );
+    }
   }
 
   private setSel(i: number): void {

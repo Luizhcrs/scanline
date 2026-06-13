@@ -5,6 +5,7 @@ import * as fs from 'fs';
 
 export class PtyManager {
   private ptys: Map<number, nodePty.IPty> = new Map();
+  private pids: Map<number, number> = new Map();
   private win: BrowserWindow;
 
   constructor(win: BrowserWindow) {
@@ -29,12 +30,24 @@ export class PtyManager {
       : [];
     const resolvedCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
 
+    const env = { ...process.env } as { [key: string]: string };
+    if (process.platform === 'darwin' && !env.TERM_PROGRAM) {
+      env.TERM_PROGRAM = 'Apple_Terminal';
+    }
+
+    const existing = this.ptys.get(id);
+    if (existing) {
+      existing.kill();
+      this.ptys.delete(id);
+      this.pids.delete(id);
+    }
+
     const pty = nodePty.spawn(resolvedShell, args, {
-      name: 'xterm-color',
+      name: 'xterm-256color',
       rows,
       cols,
       cwd: resolvedCwd,
-      env: process.env as { [key: string]: string },
+      env,
     });
 
     pty.onData((data) => {
@@ -45,18 +58,20 @@ export class PtyManager {
 
     pty.onExit(() => {
       this.ptys.delete(id);
+      this.pids.delete(id);
       if (!this.win.webContents.isDestroyed()) {
         this.win.webContents.send('pty:exit:' + id);
       }
     });
 
     this.ptys.set(id, pty);
+    this.pids.set(id, pty.pid);
   }
 
   write(id: number, data: number[]): void {
     const pty = this.ptys.get(id);
     if (!pty) return;
-    pty.write(Buffer.from(data).toString());
+    pty.write(Buffer.from(data).toString('utf-8'));
   }
 
   resize(id: number, rows: number, cols: number): void {
@@ -72,6 +87,11 @@ export class PtyManager {
     if (!pty) return;
     pty.kill();
     this.ptys.delete(id);
+    this.pids.delete(id);
+  }
+
+  getPid(id: number): number | undefined {
+    return this.pids.get(id);
   }
 
   closeAll(): void {

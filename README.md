@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/logo.png" width="120" alt="Scanline"></p>
 <h1 align="center">Scanline</h1>
-<p align="center">Multiplexador de terminal nativo para Windows e macOS + navegador scriptavel para agentes de IA.</p>
+<p align="center">Multiplexador de terminal + navegador scriptavel para agentes de IA.</p>
 
 <p align="center"><b>Portugues</b> &middot; <a href="README.en.md">English</a></p>
 
@@ -8,7 +8,7 @@
 
 Scanline ocupa uma unica janela. Dentro dela voce divide paineis de terminal e paineis de navegador Chromium lado a lado, troca de contexto com workspaces em abas verticais, e da ao agente um navegador scriptavel via CDP — ele tira snapshot, clica, preenche e captura tela de um app web rodando ao lado do shell que o construiu.
 
-Windows e macOS: Electron + ConPTY. Sem WSL, sem tmux, sem dependencia de WebView2.
+Nativo do Windows: Electron + ConPTY. Sem WSL, sem tmux, sem dependencia de WebView2.
 
 ## O que e e por que existe
 
@@ -32,33 +32,26 @@ Capacidades principais:
 
 | Ferramenta | Diferenca |
 |---|---|
-| cmux (manaflow-ai) | macOS-only, GPL-3.0 |
-| wmux | alternativa Windows mais proxima — tambem tem navegador CDP; Scanline difere em licenca MIT, local-first e UI PT-BR/EN nativa |
+| cmux (manaflow-ai) | so macOS, GPL-3.0 |
+| wmux | alternativa Windows mais proxima — tambem tem navegador CDP; Scanline difere em licenca AGPL-3.0, local-first e UI PT-BR/EN nativa |
 | Warp | IA atrelada a nuvem e centrada no shell; sem painel de navegador dirigido por agente |
 | Wave Terminal | o widget de navegador e somente-leitura pra IA, nao um alvo scriptavel via CDP |
 | Windows Terminal / WezTerm / Tabby | sem hooks de agente, sem navegador scriptavel, sem sidebar de status de PR |
 
-Posicionamento do Scanline: a UX agent-native do cmux trazida pro Windows e macOS — navegador Chromium scriptavel via CDP, local-first, MIT, e UI nativa PT-BR/EN.
+Posicionamento do Scanline: a UX agent-native do cmux trazida pro Windows e macOS — navegador Chromium scriptavel via CDP, local-first, AGPL-3.0, e UI nativa PT-BR/EN.
 
 ## Instalacao
 
 ### Baixar o instalador
 
-Na pagina de Releases do GitHub voce encontra os instaladores:
+Na pagina de Releases do GitHub voce encontra o instalador:
 
 **https://github.com/Luizhcrs/scanline/releases/latest**
 
-**Windows:**
 - `Scanline Setup <versao>.exe` — instalador NSIS (recomendado). Cria atalhos no Menu Iniciar.
 - `Scanline <versao>.exe` — portable. Rode direto, sem instalar.
 
 Como o Scanline ainda nao e assinado digitalmente, o Windows SmartScreen vai mostrar o dialogo "O Windows protegeu o computador" ao rodar o instalador. Clique em "Mais informacoes" e depois "Executar mesmo assim".
-
-**macOS:**
-- `Scanline-<versao>-arm64.dmg` — Apple Silicon (M1/M2/M3).
-- `Scanline-<versao>-x64.dmg` — Intel.
-
-No macOS, ao abrir o DMG pela primeira vez o Gatekeeper pode bloquear por falta de assinatura. Va em Configuracoes do Sistema > Seguranca e Privacidade e clique em "Abrir assim mesmo".
 
 O auto-update in-app ainda nao esta habilitado. Por enquanto, baixe versoes novas pela pagina de Releases.
 
@@ -72,24 +65,16 @@ npm install
 npm run dist
 ```
 
-Saida no Windows: `app\dist-installer\` (instalador NSIS).
-Saida no macOS: `app/dist-installer/` (DMG arm64 + x64).
+Saida: `app\dist-installer\` (instalador NSIS).
 
 Compile a CLI separadamente:
 
 ```powershell
-# Windows
 cd cli
 go build
-# gera scanline.exe
-
-# macOS / Linux
-cd cli
-go build
-# gera scanline
 ```
 
-Coloque o binario no PATH pra que agentes e scripts alcancem a janela em execucao.
+Isso gera `scanline.exe`. Coloque no PATH pra que agentes e scripts alcancem a janela em execucao.
 
 <details>
 <summary><b>Recursos</b></summary>
@@ -462,4 +447,4 @@ scanline/
 
 ## Licenca
 
-MIT. O Scanline e uma reimplementacao clean-room da UX agent-native de terminal pioneirada pelo cmux (manaflow-ai/cmux, GPL-3.0). Nenhum codigo e copiado do cmux; o comportamento do shim tmux-compat e da integracao com agentes e modelado, nao derivado. Veja [LICENSE](LICENSE).
+AGPL-3.0. O Scanline e uma reimplementacao clean-room da UX agent-native de terminal pioneirada pelo cmux (manaflow-ai/cmux, GPL-3.0). Nenhum codigo e copiado do cmux; o comportamento do shim tmux-compat e da integracao com agentes e modelado, nao derivado. Veja [LICENSE](LICENSE).
