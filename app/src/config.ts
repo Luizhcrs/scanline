@@ -1,10 +1,8 @@
 import { invoke } from "./api";
 
-/**
- * scanline.json — user config in %APPDATA%\scanline\scanline.json (JSONC: //
- * and /* *​/ comments allowed). Loaded on boot, reloadable live. Unknown/missing
- * keys fall back to DEFAULTS.
- */
+// scanline.json — user config in %APPDATA%\scanline\scanline.json (JSONC:
+// // and block comments allowed). Loaded on boot, reloadable live. Unknown/missing
+// keys fall back to DEFAULTS.
 export interface ScanlineConfig {
   terminal: {
     fontFamily: string;

@@ -263,7 +263,7 @@ export class FindBar {
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        e.shiftKey ? this.handlers?.prev() : this.handlers?.next();
+        if (e.shiftKey) this.handlers?.prev(); else this.handlers?.next();
       } else if (e.key === "Escape") {
         e.preventDefault();
         this.close();

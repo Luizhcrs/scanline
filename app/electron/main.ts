@@ -230,7 +230,7 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && isDev) {
-    try { app.dock.setIcon(path.join(__dirname, '../icons/icon.png')); } catch {}
+    try { app.dock.setIcon(path.join(__dirname, '../icons/icon.png')); } catch { /* icon may not exist in dev */ }
   }
 
   nativeTheme.themeSource = 'system';

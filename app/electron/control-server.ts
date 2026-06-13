@@ -66,7 +66,7 @@ export class ControlServer {
 
   start(): void {
     if (process.platform !== 'win32') {
-      try { fs.unlinkSync(pipePath); } catch {}
+      try { fs.unlinkSync(pipePath); } catch { /* socket may not exist */ }
     }
     this.server.listen(pipePath);
   }

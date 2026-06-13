@@ -19,7 +19,10 @@
     "dist": "npm run build && electron-builder",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
-    "lint": "echo 'ESLint not configured yet'"
+    "lint": "eslint src/ electron/",
+    "lint:fix": "eslint src/ electron/ --fix",
+    "format": "prettier --write 'src/**/*.ts' 'electron/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'electron/**/*.ts'"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -32,12 +35,17 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.0.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.0.0",
     "concurrently": "^9.0.0",
     "electron": "^33.4.11",
     "electron-builder": "^25.0.0",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
     "jsdom": "^29.1.1",
+    "prettier": "^3.8.4",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.61.0",
     "vite": "^6.0.3",
     "vitest": "^4.1.8",
     "wait-on": "^8.0.0"

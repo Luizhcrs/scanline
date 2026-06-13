@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, shell } from 'electron';
+import { BrowserWindow, WebContentsView } from 'electron';
 
 const ALLOWED_CDP_METHODS = new Set([
   'Runtime.evaluate', 'Runtime.getProperties',
@@ -49,7 +49,7 @@ export class BrowserManager {
 
     try {
       view.webContents.debugger.attach('1.3');
-    } catch (_) {}
+    } catch { /* debugger attach may fail */ }
 
     this.views.set(id, view);
   }
@@ -57,7 +57,7 @@ export class BrowserManager {
   navigate(id: number, url: string): void {
     try {
       this.views.get(id)?.webContents.loadURL(url);
-    } catch (_) {}
+    } catch { /* invalid URL */ }
   }
 
   bounds(id: number, x: number, y: number, w: number, h: number): void {
