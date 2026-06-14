@@ -34,10 +34,6 @@ jobs:
         working-directory: app
         run: npm run test
 
-      - name: Rebuild native modules (node-pty)
-        working-directory: app
-        run: ./node_modules/.bin/electron-rebuild
-
       - name: Build and package (macOS DMG)
         working-directory: app
         run: npm run dist
@@ -76,11 +72,6 @@ jobs:
       - name: Test
         working-directory: app
         run: npm run test
-
-      - name: Rebuild native modules (node-pty)
-        working-directory: app
-        run: ./node_modules/.bin/electron-rebuild
-        shell: bash
 
       - name: Build and package (Windows installer)
         working-directory: app
