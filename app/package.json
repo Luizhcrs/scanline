@@ -5,6 +5,10 @@
   "description": "Terminal multiplexer + scriptable browser for AI coding agents (macOS, Windows)",
   "license": "AGPL-3.0-only",
   "author": "Luiz <luizhcrs@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Luizhcrs/scanline.git"
+  },
   "type": "module",
   "main": "dist-electron/main.js",
   "engines": {
