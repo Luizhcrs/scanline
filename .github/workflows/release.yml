@@ -34,6 +34,9 @@ jobs:
         working-directory: app
         run: npm run test
 
+      - name: Install Python setuptools (for node-gyp)
+        run: pip3 install setuptools
+
       - name: Build and package (macOS DMG)
         working-directory: app
         run: npm run dist
@@ -72,6 +75,10 @@ jobs:
       - name: Test
         working-directory: app
         run: npm run test
+
+      - name: Install Python setuptools (for node-gyp)
+        run: pip install setuptools
+        shell: bash
 
       - name: Build and package (Windows installer)
         working-directory: app
