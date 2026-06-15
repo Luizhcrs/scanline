@@ -358,7 +358,7 @@ export class Pane implements PaneLike {
       // PowerShell doesn't emit OSC 7 natively — parse its default prompt to track cwd.
       // Strip ANSI codes, look for "PS C:\path> " pattern.
       const stripped = data.replace(/\x1b\[[^m]*m|\x1b\][^\x07]*\x07|\x1b\][^\x1b]*\x1b\\/g, '');
-      const psMatch = stripped.match(/\nPS ([A-Za-z]:[^\r\n>]*?)>\s/);
+      const psMatch = stripped.match(/(?:^|\n)PS ([A-Za-z]:[^\r\n>]*?)>\s/);
       if (psMatch) {
         const cwd = psMatch[1].trim();
         if (cwd) this._cwd = cwd;
