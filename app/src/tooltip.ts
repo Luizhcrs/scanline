@@ -48,8 +48,8 @@ export function installTooltips(root: HTMLElement = document.body): void {
   }, true);
 
   root.addEventListener("mousemove", (e) => {
-    if (tip?.style.display !== "none") {
-      showTip(tip!.textContent || "", e.clientX, e.clientY);
+    if (tip && tip.style.display !== "none") {
+      showTip(tip.textContent || "", e.clientX, e.clientY);
     }
   });
 

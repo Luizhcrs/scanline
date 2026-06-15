@@ -506,7 +506,7 @@ export class PaneContainer implements PaneLike {
     const btnRight   = mkPaneBtn("panel-right",  t("cmd.split.right"),           () => this.onSplitRight?.(this));
     const btnDown    = mkPaneBtn("panel-bottom",  t("cmd.split.down"),           () => this.onSplitDown?.(this));
     this.strip.replaceChildren(grip, ...tabs, add, spacer, btnTerm, btnBrowser, btnRight, btnDown);
-    createIcons({ icons: { Terminal, Globe, PanelRight, PanelBottom } });
+    createIcons({ icons: { Terminal, Globe, PanelRight, PanelBottom }, root: this.strip as unknown as Element });
   }
 
   /** Start inline rename of the active tab (context menu / shortcut). */

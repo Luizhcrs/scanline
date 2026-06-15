@@ -18,7 +18,7 @@ export class PtyManager {
     shell: string | null,
     command: string | null,
     cwd: string | null
-  ): void {
+  ): { cwd: string } {
     const resolvedShell = shell || (
       process.platform === 'win32'
         ? (process.env.SCANLINE_SHELL || 'powershell.exe')
@@ -38,19 +38,24 @@ export class PtyManager {
     });
 
     pty.onData((data) => {
-      if (!this.win.webContents.isDestroyed()) {
-        this.win.webContents.send('pty:data:' + id, data);
-      }
+      try {
+        if (!this.win.webContents.isDestroyed()) {
+          this.win.webContents.send('pty:data:' + id, data);
+        }
+      } catch {}
     });
 
     pty.onExit(() => {
       this.ptys.delete(id);
-      if (!this.win.webContents.isDestroyed()) {
-        this.win.webContents.send('pty:exit:' + id);
-      }
+      try {
+        if (!this.win.webContents.isDestroyed()) {
+          this.win.webContents.send('pty:exit:' + id);
+        }
+      } catch {}
     });
 
     this.ptys.set(id, pty);
+    return { cwd: resolvedCwd };
   }
 
   write(id: number, data: number[]): void {

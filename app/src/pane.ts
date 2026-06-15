@@ -257,6 +257,14 @@ export class Pane implements PaneLike {
     const dataUnlisten = api.onPtyData(id, (data: string) => {
       if (this.disposed) return;
       this.term.write(data);
+      // PowerShell doesn't emit OSC 7 natively — parse its default prompt to track cwd.
+      // Strip ANSI codes, look for "PS C:\path> " pattern.
+      const stripped = data.replace(/\x1b\[[^m]*m|\x1b\][^\x07]*\x07|\x1b\][^\x1b]*\x1b\\/g, '');
+      const psMatch = stripped.match(/\nPS ([A-Za-z]:[^\r\n>]*?)>\s/);
+      if (psMatch) {
+        const cwd = psMatch[1].trim();
+        if (cwd) this._cwd = cwd;
+      }
     });
     this.unlisteners.push(dataUnlisten);
 
@@ -296,7 +304,7 @@ export class Pane implements PaneLike {
     // boot otherwise.
     if (this.disposed) return;
 
-    await invoke("pty_spawn", {
+    const spawnResult = await invoke<{ cwd: string }>("pty_spawn", {
       id,
       rows: this.term.rows,
       cols: this.term.cols,
@@ -305,6 +313,7 @@ export class Pane implements PaneLike {
       surfaceId: this.paneId,
       cwd: this.initialCwd ?? null,
     });
+    if (spawnResult?.cwd) this._cwd = spawnResult.cwd;
     this.lastRows = this.term.rows;
     this.lastCols = this.term.cols;
 

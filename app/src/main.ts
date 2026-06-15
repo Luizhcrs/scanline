@@ -529,7 +529,7 @@ class App {
         }
       }
     }
-    requestAnimationFrame(() => this.activeLayout.refitAll());
+    requestAnimationFrame(() => { if (this.activeWs) this.activeLayout.refitAll(); });
   }
 
   /** Toggle minimal mode (hide sidebar + tab bars) and persist it. */
