@@ -1,4 +1,13 @@
-import { BrowserWindow, WebContentsView, shell } from 'electron';
+import { BrowserWindow, WebContentsView } from 'electron';
+
+const ALLOWED_CDP_METHODS = new Set([
+  'Runtime.evaluate', 'Runtime.getProperties',
+  'DOM.getDocument', 'DOM.querySelector', 'DOM.getOuterHTML', 'DOM.setAttributeValue',
+  'Page.captureScreenshot', 'Page.navigate', 'Page.reload',
+  'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Input.insertText',
+  'Network.getResponseBody',
+  'Target.getTargets',
+]);
 
 export class BrowserManager {
   private win: BrowserWindow;
@@ -22,21 +31,25 @@ export class BrowserManager {
     view.webContents.loadURL(url || 'about:blank');
 
     view.webContents.on('did-navigate', (_, u) => {
+      if (this.win.isDestroyed()) return;
       this.win.webContents.send('browser:url:' + id, u);
     });
 
     view.webContents.on('did-navigate-in-page', (_, u) => {
+      if (this.win.isDestroyed()) return;
       this.win.webContents.send('browser:url:' + id, u);
     });
 
     view.webContents.setWindowOpenHandler(({ url: u }) => {
-      this.win.webContents.send('browser:new-window:' + id, u);
+      if (!this.win.isDestroyed()) {
+        this.win.webContents.send('browser:new-window:' + id, u);
+      }
       return { action: 'deny' };
     });
 
     try {
       view.webContents.debugger.attach('1.3');
-    } catch (_) {}
+    } catch { /* debugger attach may fail */ }
 
     this.views.set(id, view);
   }
@@ -44,17 +57,17 @@ export class BrowserManager {
   navigate(id: number, url: string): void {
     try {
       this.views.get(id)?.webContents.loadURL(url);
-    } catch (_) {}
+    } catch { /* invalid URL */ }
   }
 
   bounds(id: number, x: number, y: number, w: number, h: number): void {
-    if (!(w > 0 && h > 0)) return;
+    if (!(w > 0 && h > 0) || this.win.isDestroyed()) return;
     this.views.get(id)?.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
   }
 
   visible(id: number, v: boolean): void {
     const view = this.views.get(id);
-    if (!view) return;
+    if (!view || this.win.isDestroyed()) return;
     if (v) {
       this.win.contentView.addChildView(view);
     } else {
@@ -73,7 +86,9 @@ export class BrowserManager {
   close(id: number): void {
     const view = this.views.get(id);
     if (!view) return;
-    this.win.contentView.removeChildView(view);
+    if (!this.win.isDestroyed()) {
+      this.win.contentView.removeChildView(view);
+    }
     (view as any).webContents.destroy?.();
     this.views.delete(id);
   }
@@ -85,6 +100,9 @@ export class BrowserManager {
   async cdp(id: number, method: string, paramsStr: string): Promise<string> {
     const view = this.views.get(id);
     if (!view) return JSON.stringify({});
+    if (!ALLOWED_CDP_METHODS.has(method)) {
+      return JSON.stringify({ error: `CDP method "${method}" not allowed` });
+    }
     try {
       const params = JSON.parse(paramsStr || '{}');
       const result = await view.webContents.debugger.sendCommand(method, params);

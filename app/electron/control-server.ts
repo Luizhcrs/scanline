@@ -7,6 +7,8 @@ const pipePath = process.platform === 'win32'
   ? '\\\\.\\pipe\\scanline'
   : `${os.tmpdir()}/scanline-${process.getuid!()}.sock`;
 
+const MAX_BUFFER = 1024 * 1024; // 1 MB
+
 export class ControlServer {
   private win: BrowserWindow;
   private server: net.Server;
@@ -23,6 +25,10 @@ export class ControlServer {
 
     socket.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
+      if (buffer.length > MAX_BUFFER) {
+        socket.destroy();
+        return;
+      }
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
 
@@ -55,12 +61,12 @@ export class ControlServer {
     };
 
     socket.on('close', cleanup);
-    socket.on('error', cleanup);
+    socket.on('error', () => { cleanup(); socket.destroy(); });
   }
 
   start(): void {
     if (process.platform !== 'win32') {
-      try { fs.unlinkSync(pipePath); } catch {}
+      try { fs.unlinkSync(pipePath); } catch { /* socket may not exist */ }
     }
     this.server.listen(pipePath);
   }
@@ -73,6 +79,8 @@ export class ControlServer {
   }
 
   stop(): void {
+    for (const [, sock] of this.pending) sock.destroy();
+    this.pending.clear();
     this.server.close();
   }
 }

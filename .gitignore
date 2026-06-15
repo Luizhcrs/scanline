@@ -1,6 +1,7 @@
 # Node
 node_modules/
 app/dist/
+app/dist-electron/
 
 # Electron build output
 app/dist-installer/
@@ -28,6 +29,7 @@ Thumbs.db
 cli/scanline
 cli/scanline-cli.exe
 # CLI build artifact bundled with Electron
+app/scanline-cli
 app/scanline-cli.exe
 
 # Internal planning docs kept local, NEVER published (clean-room: the feature

@@ -149,6 +149,62 @@ export class Pane implements PaneLike {
     });
 
     this.el.addEventListener("mousedown", () => this.onFocusRequest?.(this));
+
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.dataTransfer) return;
+
+      // Try files first (most reliable in Electron).
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        const paths = Array.from(files)
+          .map((f) => (f as any).path as string)
+          .filter(Boolean);
+        if (paths.length > 0) {
+          const text = paths
+            .map((p) => (p.includes(" ") ? `"${p}"` : p))
+            .join(" ");
+          this.sendText(text);
+          return;
+        }
+      }
+
+      // Fallback: text/uri-list (some OS/拖拽 sources emit URIs instead of files).
+      const uriList = e.dataTransfer.getData("text/uri-list");
+      if (uriList) {
+        const paths = uriList
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith("file://"))
+          .map((l) => {
+            try {
+              const url = new URL(l);
+              const p = decodeURIComponent(url.pathname).replace(/^\/([A-Za-z]:)/, "$1");
+              return p.includes(" ") ? `"${p}"` : p;
+            } catch {
+              return l.replace("file://", "");
+            }
+          });
+        if (paths.length > 0) {
+          this.sendText(paths.join(" "));
+          return;
+        }
+      }
+
+      // Final fallback: plain text (e.g. dragged text snippet).
+      const text = e.dataTransfer.getData("text/plain");
+      if (text) this.sendText(text.includes(" ") ? `"${text}"` : text);
+    };
+
+    // Use capture phase to ensure we see the event before xterm's internal listeners.
+    this.el.addEventListener("dragover", onDragOver, true);
+    this.el.addEventListener("drop", onDrop, true);
   }
 
   /**
@@ -162,6 +218,12 @@ export class Pane implements PaneLike {
     this.term.open(this.el);
     this.installAddons();
     this.safeFit();
+    // Apply the correct theme (dark/light) based on system preference.
+    const dark =
+      document.documentElement.dataset.theme !== "light" &&
+      (document.documentElement.dataset.theme === "dark" ||
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    this.applyTheme(dark);
     // Restore previous scrollback before spawning so the user sees their prior
     // terminal content immediately. Written as raw VT sequences — the terminal
     // replays the saved state exactly as it was serialized.
@@ -208,13 +270,16 @@ export class Pane implements PaneLike {
     // OSC 777 ; notify ; <title> ; <body>  (urxvt/iTerm-style).
     this.term.parser.registerOscHandler(777, (data) => {
       const p = data.split(";");
-      if (p[0] === "notify") this.notify(p[1] ?? "", p.slice(2).join(";"));
+      if (p[0] === "notify") {
+        this.notify(p[1] ?? "", p.slice(2).join(";"));
+      }
       return true;
     });
     // An OSC notify is terminated by BEL, which also fires onBell - dedupe so a
     // single notify is not counted twice (notify + phantom bell).
     this.term.onBell(() => {
-      if (Date.now() - this.lastNotifyAt < 100) return;
+      const delta = Date.now() - this.lastNotifyAt;
+      if (delta < 500) return;
       this.notify("", "");
     });
   }
@@ -246,6 +311,39 @@ export class Pane implements PaneLike {
     this.term.options.theme = t.theme;
     this.safeFit();
     this.refit();
+  }
+
+  /** Update terminal theme when OS dark/light mode changes. */
+  applyTheme(dark: boolean): void {
+    const cfg = config().terminal;
+    const userTheme = cfg.theme;
+    // If user explicitly set non-default colors, respect their choice.
+    const isDefault =
+      userTheme.background === "#000000" &&
+      userTheme.foreground === "#ffffff" &&
+      userTheme.cursor === "#5aa0ff";
+    if (!isDefault) {
+      this.term.options.theme = userTheme;
+      return;
+    }
+    // Auto theme: match system dark/light.
+    if (dark) {
+      this.term.options.theme = {
+        background: "#000000",
+        foreground: "#ffffff",
+        cursor: "#5aa0ff",
+        selectionBackground: "#264f78",
+        selectionForeground: "#ffffff",
+      };
+    } else {
+      this.term.options.theme = {
+        background: "#ffffff",
+        foreground: "#1d1d1f",
+        cursor: "#0066cc",
+        selectionBackground: "#b3d7ff",
+        selectionForeground: "#1d1d1f",
+      };
+    }
   }
 
   private async spawn(shell?: string): Promise<void> {

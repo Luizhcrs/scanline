@@ -168,8 +168,14 @@ export class CommandPalette {
     // stays the same size or shrinks. The synchronous render() that re-sorts
     // a fresh item list intentionally resets sel to 0 via open().
     this.sel = Math.max(0, Math.min(this.sel, this.filtered.length - 1));
-    this.listEl.replaceChildren(
-      ...this.filtered.map((it, i) => {
+    if (this.filtered.length === 0 && this.input.value.trim()) {
+      const empty = document.createElement("div");
+      empty.className = "palette-empty";
+      empty.textContent = t("palette.empty");
+      this.listEl.replaceChildren(empty);
+    } else {
+      this.listEl.replaceChildren(
+        ...this.filtered.map((it, i) => {
         const row = document.createElement("div");
         row.className = "palette-row" + (i === this.sel ? " sel" : "");
         const lbl = document.createElement("span");
@@ -186,6 +192,7 @@ export class CommandPalette {
         return row;
       }),
     );
+    }
   }
 
   private setSel(i: number): void {
@@ -256,7 +263,7 @@ export class FindBar {
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        e.shiftKey ? this.handlers?.prev() : this.handlers?.next();
+        if (e.shiftKey) this.handlers?.prev(); else this.handlers?.next();
       } else if (e.key === "Escape") {
         e.preventDefault();
         this.close();

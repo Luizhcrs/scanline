@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { keyToBytes } from "./main";
+import { keyToBytes } from "./keyToBytes";
 
 describe("keyToBytes", () => {
   describe("named keys", () => {

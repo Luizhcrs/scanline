@@ -1,7 +1,10 @@
 /** Play exit animation on an overlay then hide it. */
 export function closeOverlay(el: HTMLElement, onDone: () => void): void {
   el.classList.add("closing");
+  let finished = false;
   const done = () => {
+    if (finished) return;
+    finished = true;
     el.classList.remove("closing");
     onDone();
   };

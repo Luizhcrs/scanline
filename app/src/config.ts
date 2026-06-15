@@ -1,10 +1,8 @@
 import { invoke } from "./api";
 
-/**
- * scanline.json — user config in %APPDATA%\scanline\scanline.json (JSONC: //
- * and /* *​/ comments allowed). Loaded on boot, reloadable live. Unknown/missing
- * keys fall back to DEFAULTS.
- */
+// scanline.json — user config in %APPDATA%\scanline\scanline.json (JSONC:
+// // and block comments allowed). Loaded on boot, reloadable live. Unknown/missing
+// keys fall back to DEFAULTS.
 export interface ScanlineConfig {
   terminal: {
     fontFamily: string;
@@ -12,7 +10,7 @@ export interface ScanlineConfig {
     scrollback: number;
     theme: { background: string; foreground: string; cursor: string };
   };
-  ui: { fontFamily: string; minimal: boolean; language: "auto" | "pt" | "en"; tooltipShortcuts: boolean };
+  ui: { fontFamily: string; minimal: boolean; language: "auto" | "pt" | "en"; tooltipShortcuts: boolean; theme: "auto" | "light" | "dark" };
   /** Action -> chord overrides (e.g. {"palette":"ctrl+k"}). Empty = defaults. */
   keybindings: Record<string, string>;
 }
@@ -29,6 +27,7 @@ export const DEFAULTS: ScanlineConfig = {
     minimal: false,
     language: "auto",
     tooltipShortcuts: true,
+    theme: "auto",
   },
   keybindings: {},
 };
@@ -98,10 +97,16 @@ export function merge(base: any, over: any): any {
   return out;
 }
 
-/** Apply document-level config (UI font, minimal mode). */
+/** Apply document-level config (UI font, minimal mode, theme). */
 function apply(): void {
   document.documentElement.style.setProperty("--ui-font", current.ui.fontFamily);
   document.body.classList.toggle("minimal", !!current.ui.minimal);
+  const theme = current.ui.theme ?? "auto";
+  if (theme === "auto") {
+    document.documentElement.removeAttribute("data-theme");
+  } else {
+    document.documentElement.dataset.theme = theme;
+  }
 }
 
 /** (Re)load scanline.json from disk and apply the UI font. Returns the config.

@@ -51,11 +51,16 @@ export class FeedPanel {
       const settle = (decision: string) => {
         clearTimeout(timer);
         row.remove();
-        // Panel hides once no cards remain — derived from the DOM, never a
-        // separate counter that could desync.
+        // Panel hides once no cards remain — animated out.
         if (!this.list.childElementCount) {
-          this.panel.style.display = "none";
-          popOverlay("feed");
+          this.panel.classList.add("closing");
+          const done = () => {
+            this.panel.classList.remove("closing");
+            this.panel.style.display = "none";
+            popOverlay("feed");
+          };
+          this.panel.addEventListener("animationend", done, { once: true });
+          setTimeout(done, 300);
         }
         resolve(decision);
       };

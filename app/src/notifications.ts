@@ -147,10 +147,15 @@ export class NotificationStore {
   togglePanel(): void {
     const showing = this.panel.style.display !== "none";
     if (showing) {
-      // Hiding: pop before removing from DOM flow so browser webviews restore
-      // only after the panel is gone (key "notif" is stable and idempotent).
-      popOverlay("notif");
-      this.panel.style.display = "none";
+      // Animate out, then hide.
+      this.panel.classList.add("closing");
+      const done = () => {
+        this.panel.classList.remove("closing");
+        this.panel.style.display = "none";
+        popOverlay("notif");
+      };
+      this.panel.addEventListener("animationend", done, { once: true });
+      setTimeout(done, 300);
     } else {
       this.updateHeader?.();
       this.render();
@@ -160,6 +165,7 @@ export class NotificationStore {
       // element is the bell button itself — the button's click handler calls
       // togglePanel() after this mousedown, which would re-open the panel.
       const bellBtn = document.getElementById("tb-notifications");
+      bellBtn?.blur();
       const onOutside = (e: MouseEvent) => {
         const t = e.target as Node;
         if (this.panel.contains(t) || bellBtn?.contains(t)) return;
