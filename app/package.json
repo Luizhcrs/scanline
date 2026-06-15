@@ -1,7 +1,7 @@
 {
   "name": "scanline",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Terminal multiplexer + scriptable browser for AI coding agents (macOS, Windows)",
   "license": "AGPL-3.0-only",
   "author": "Luiz <luizhcrs@gmail.com>",
